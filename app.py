@@ -342,8 +342,9 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             # I) same URL but with twikit's _base_headers (has OAuth2Session auth-type)
             r3 = await s.get(url, headers=dict(guest._base_headers, **{"x-guest-token": gt}), timeout=60)
             steps["graphql_baseh"] = f"status={r3.status_code} {r3.text[:200]}"
-            # J) raw SearchTimeline guest call
+            # J) raw SearchTimeline guest call (twikit FEATURES + fieldToggles)
             from twikit.utils import flatten_params as _fp
+            from twikit.constants import FEATURES as _TF
 
             sparams = _fp(
                 {
@@ -353,10 +354,8 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
                         "querySource": "typed_query",
                         "product": "Latest",
                     },
-                    "features": {
-                        "rweb_tipjar_consumption_enabled": True,
-                        "responsive_web_graphql_exclude_directive_enabled": True,
-                    },
+                    "features": _TF,
+                    "fieldToggles": {"withArticleRichContentState": False},
                 }
             )
             surl = (
