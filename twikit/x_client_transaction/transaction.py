@@ -180,8 +180,17 @@ class ClientTransaction:
         row_index = key_bytes[self.DEFAULT_ROW_INDEX] % 16
         frame_time = reduce(lambda num1, num2: num1*num2,
                             [key_bytes[index] % 16 for index in self.DEFAULT_KEY_BYTES_INDICES])
-        arr = self.get_2d_array(key_bytes, response)
-        frame_row = arr[row_index]
+        try:
+            arr = self.get_2d_array(key_bytes, response)
+            frame_row = arr[row_index]
+        except Exception:
+            # X replaced the animated SVG frames with a static logo: fall
+            # back to a deterministic key derived from key_bytes so the
+            # transaction ID keeps a valid format.
+            fallback = hashlib.sha256(
+                bytes(key_bytes) + b'animation-fallback'
+            ).hexdigest()
+            return re.sub(r'[.-]', '', fallback)[:64]
 
         target_time = float(frame_time) / total_time
         animation_key = self.animate(frame_row, target_time)

@@ -112,6 +112,18 @@ def debug() -> dict:
     }
 
 
+@app.post("/login")
+async def do_login(x_api_key: str | None = Header(default=None)) -> dict:
+    """Trigger the login flow explicitly (protected when API_KEY is set).
+    Lets you verify credentials work without calling a data endpoint."""
+    check_api_key(x_api_key)
+    global _logged_in
+    _logged_in = False  # force a fresh login attempt
+    await ensure_login()
+    me = await client.get_user_by_screen_name(USERNAME.lstrip("@"))
+    return {"logged_in": True, "id": me.id, "name": me.name}
+
+
 @app.get("/diag-transaction")
 async def diag_transaction() -> dict:
     """Step-by-step diagnosis of ClientTransaction.init — shows exactly which step fails."""
