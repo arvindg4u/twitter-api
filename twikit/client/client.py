@@ -153,8 +153,18 @@ class Client:
         tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
         headers['X-Client-Transaction-Id'] = tid
 
+        # Guest-mode (login flow, no auth_token): send api.x.com requests
+        # completely cookieless. Verified live: with homepage/guest cookies
+        # attached Cloudflare challenges (403); without them X responds.
+        guest_mode = 'auth_token' not in self.get_cookies()
+        if guest_mode:
+            self.set_cookies({}, clear_cookies=True)
         cookies_backup = self.get_cookies().copy()
-        response = await self.http.request(method, url, headers=headers, **kwargs)
+        try:
+            response = await self.http.request(method, url, headers=headers, **kwargs)
+        finally:
+            if guest_mode:
+                self.set_cookies({}, clear_cookies=True)
         self._remove_duplicate_ct0_cookie()
 
         try:
