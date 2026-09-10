@@ -41,11 +41,17 @@ COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies.json")
 # disable and use stock httpx. Needed because Cloudflare challenges
 # datacenter IPs with non-browser TLS fingerprints.
 TLS_IMPERSONATE = os.getenv("TLS_IMPERSONATE", "chrome")
+# Fresh curl session per request (no connection/TLS-session reuse). Slower,
+# but defeats Cloudflare flagging reused datacenter connections.
+FRESH_SESSION = os.getenv("FRESH_SESSION", "true").lower() in ("1", "true", "yes")
 
 if TLS_IMPERSONATE:
     from curl_transport import CurlCffiTransport
 
-    client = Client("en-US", transport=CurlCffiTransport(TLS_IMPERSONATE))
+    client = Client(
+        "en-US",
+        transport=CurlCffiTransport(TLS_IMPERSONATE, fresh_session_per_request=FRESH_SESSION),
+    )
 else:
     client = Client("en-US")
 _logged_in = False
