@@ -14,6 +14,11 @@ class CurlCffiTransport(httpx.AsyncBaseTransport):
         self._session = AsyncSession(impersonate=impersonate)
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        # Single source of truth for cookies is the httpx client jar (sent as
+        # the Cookie header). Clear curl's internal jar every request so stale
+        # homepage/guest cookies never leak into api.x.com calls and trigger
+        # Cloudflare challenges.
+        self._session.cookies.clear()
         body = await request.aread()
         resp = await self._session.request(
             method=request.method,
