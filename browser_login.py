@@ -126,6 +126,7 @@ async def browser_search(query: str, user_agent: str, max_tweets: int = 10) -> l
     [{id, text, user, created_at}] (best effort, may be empty).
     """
     import re as _re
+    from urllib.parse import quote as _quote
     from playwright.async_api import async_playwright
 
     await _ensure_browser()
@@ -139,7 +140,7 @@ async def browser_search(query: str, user_agent: str, max_tweets: int = 10) -> l
             )
             page = await ctx.new_page()
             url = (
-                "https://x.com/search?q=" + _re.quote(query)
+                "https://x.com/search?q=" + _quote(query)
                 + "&src=typed_query&f=live"
             )
             try:
