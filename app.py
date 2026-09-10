@@ -491,6 +491,17 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             )
             rt2 = await s.get(url=turl2, headers=base_gql_h, timeout=60)
             steps["search_typeahead"] = f"status={rt2.status_code} {rt2.text[:300]}"
+            # K3) v1.1 REST search endpoints with guest token (trends/place
+            # worked guest-side, so these might too)
+            for label, v1url in (
+                ("v1_tweets", "https://api.x.com/1.1/search/tweets.json?" + _up.urlencode({"q": "python", "count": 5, "tweet_mode": "extended"})),
+                ("v1_users", "https://api.x.com/1.1/users/search.json?" + _up.urlencode({"q": "elon", "count": 5})),
+            ):
+                try:
+                    rv = await s.get(url=v1url, headers=base_gql_h, timeout=60)
+                    steps[f"search_{label}"] = f"status={rv.status_code} {rv.text[:250]}"
+                except Exception as e:
+                    steps[f"search_{label}"] = f"FAIL: {type(e).__name__}: {str(e)[:150]}"
             # L) capture EXACT twikit Flow request (transport fix now live)
             import httpx as _hx2
 
