@@ -150,8 +150,12 @@ class Client:
             else:
                 self.set_cookies(cookies_backup, clear_cookies=True)
 
-        tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
-        headers['X-Client-Transaction-Id'] = tid
+        import os as _os
+        # SKIP_TID=1: omit X-Client-Transaction-Id. Our derived animation_key
+        # is a fallback X rejects with bogus 404s; bare requests succeed.
+        if _os.getenv('SKIP_TID') not in ('1', 'true', 'yes'):
+            tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
+            headers['X-Client-Transaction-Id'] = tid
 
         # Guest-mode (login flow, no auth_token): send api.x.com requests
         # completely cookieless. Verified live: with homepage/guest cookies

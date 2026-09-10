@@ -19,3 +19,5 @@ services:
         sync: false
       - key: API_KEY
         generateValue: true
+      - key: SKIP_TID
+        value: 1

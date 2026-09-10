@@ -65,13 +65,40 @@ _guest_ready = False
 _guest_lock = asyncio.Lock()
 
 
+async def raw_guest_activate() -> str:
+    """Guest token via bare request (no tid/cookies) — twikit's tid-carrying
+    request gets a bogus 404 from X while the bare one returns 200."""
+    import httpx
+    from curl_transport import CurlCffiTransport
+
+    async with httpx.AsyncClient(
+        transport=CurlCffiTransport(
+            TLS_IMPERSONATE or "chrome", fresh_session_per_request=True
+        )
+    ) as s:
+        r = await s.post(
+            "https://api.x.com/1.1/guest/activate.json",
+            headers={
+                "User-Agent": guest._user_agent,
+                "authorization": f"Bearer {guest._token}",
+                "content-type": "application/json",
+                "Origin": "https://x.com",
+                "Referer": "https://x.com/",
+            },
+            content=b"{}",
+            timeout=60,
+        )
+        r.raise_for_status()
+        return r.json()["guest_token"]
+
+
 async def ensure_guest() -> None:
     """Activate guest session (no credentials) for read-only endpoints."""
     global _guest_ready
     async with _guest_lock:
         if _guest_ready:
             return
-        await guest.activate()
+        guest._guest_token = await raw_guest_activate()
         _guest_ready = True
 
 

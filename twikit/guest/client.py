@@ -117,8 +117,10 @@ class GuestClient:
             await self.client_transaction.init(self.http, ct_headers)
             self.http.cookies = cookies_backup
 
-        tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
-        headers['X-Client-Transaction-Id'] = tid
+        import os as _os
+        if _os.getenv('SKIP_TID') not in ('1', 'true', 'yes'):
+            tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
+            headers['X-Client-Transaction-Id'] = tid
 
         response = await self.http.request(method, url, headers=headers, **kwargs)
 
