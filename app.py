@@ -305,6 +305,20 @@ async def diag_login() -> dict:
             steps["exp_notid_nocookie"] = f"status={r.status_code} {r.text[:120]}"
     except Exception as e:
         steps["exp_notid_nocookie"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    # D) fresh client, tid + cookies + query (mimics twikit Flow exactly)
+    try:
+        from twikit import Client as TwikitClient
+
+        c2 = TwikitClient(
+            "en-US",
+            transport=CurlCffiTransport("chrome", fresh_session_per_request=True),
+        )
+        t2 = await c2._get_guest_token()
+        flow2 = Flow(c2, t2)
+        await flow2.execute_task(params={"flow_name": "login"}, data={})
+        steps["exp_freshflow"] = f"ok, task={flow2.task_id}"
+    except Exception as e:
+        steps["exp_freshflow"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
 
 
