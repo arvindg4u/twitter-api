@@ -189,6 +189,11 @@ class GuestClient:
         headers = {
             'authorization': f'Bearer {self._token}',
             'content-type': 'application/json',
+            # Browser UA is required: httpx's default `python-httpx` UA gets
+            # Cloudflare-challenged (403) on datacenter IPs.
+            'User-Agent': self._user_agent,
+            'Accept': '*/*',
+            'Origin': f'https://{DOMAIN}',
             'X-Twitter-Active-User': 'yes',
             'Referer': f'https://{DOMAIN}',
         }
