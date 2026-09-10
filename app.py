@@ -380,6 +380,15 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             )
             ra = await s.get(url=aurl, headers=base_gql_h, timeout=60)
             steps["search_adaptive"] = f"status={ra.status_code} {ra.text[:300]}"
+            # K2) typeahead endpoint (user search alternative)
+            turl2 = (
+                "https://x.com/i/api/2/search/typeahead.json?"
+                + _up.urlencode(
+                    {"q": "elon", "src": "search_box", "result_type": "users"}
+                )
+            )
+            rt2 = await s.get(url=turl2, headers=base_gql_h, timeout=60)
+            steps["search_typeahead"] = f"status={rt2.status_code} {rt2.text[:300]}"
             # L) capture EXACT twikit Flow request (transport fix now live)
             import httpx as _hx2
 
