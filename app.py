@@ -215,6 +215,32 @@ async def diag_login() -> dict:
         steps["flow_login"] = f"ok, task={flow.task_id}"
     except Exception as e:
         steps["flow_login"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
+    # Experiment: raw browser-like replay of onboarding/task via curl_cffi,
+    # bypassing twikit header construction entirely.
+    try:
+        from curl_cffi.requests import AsyncSession
+
+        async with AsyncSession(impersonate="chrome") as s:
+            r = await s.post(
+                "https://api.x.com/1.1/onboarding/task.json",
+                headers={
+                    "User-Agent": client._user_agent,
+                    "Accept": "*/*",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Content-Type": "application/json",
+                    "Origin": "https://x.com",
+                    "Referer": "https://x.com/",
+                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                    "x-guest-token": token,
+                    "x-twitter-active-user": "yes",
+                    "x-twitter-client-language": "en",
+                },
+                json={"flow_name": "login", "input_flow_data": {}},
+                timeout=60,
+            )
+            steps["raw_replay"] = f"status={r.status_code} body={r.text[:200]}"
+    except Exception as e:
+        steps["raw_replay"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
 
 
