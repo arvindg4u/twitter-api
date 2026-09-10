@@ -915,18 +915,12 @@ async def search(
     product: Literal["Top", "Latest", "Media"] = "Latest",
     count: int = Query(20, ge=1, le=20),
 ):
-    # Authed search when cookies are mounted (guest search is blocked by X).
-    if _logged_in:
-        tweets = await client.search_tweet(q, product, count=count)
-        return [tweet_to_dict(t) for t in tweets]
-    try:
-        await ensure_login()
-        tweets = await client.search_tweet(q, product, count=count)
-        return [tweet_to_dict(t) for t in tweets]
-    except HTTPException:
-        await ensure_guest()
-        tweets = await guest.search_tweet(q, product, count=count)
-        return [tweet_to_dict(t) for t in tweets]
+    # Search requires auth: X blocks SearchTimeline for guest tokens
+    # (GraphQL, adaptive, typeahead and v1.1 variants all 404 — verified
+    # live). Import cookies via POST /cookies or COOKIES_JSON first.
+    await ensure_login()
+    tweets = await client.search_tweet(q, product, count=count)
+    return [tweet_to_dict(t) for t in tweets]
 
 
 @app.get("/search-users")
