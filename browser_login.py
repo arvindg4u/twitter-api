@@ -10,6 +10,7 @@ launched, used, and closed inside a single call).
 """
 
 import asyncio
+import re
 import shutil
 import subprocess
 import sys
@@ -96,6 +97,29 @@ async def debug_login_page(user_agent: str) -> dict:
             buttons = await page.locator("button, div[role=button]").evaluate_all(
                 "els => els.map(e => (e.innerText || '').slice(0, 40))"
             )
+            low = html.lower()
+            csp = await page.locator(
+                "script[src*='challenge-platform'], iframe[src*='challenge'], iframe[src*='arkose'], iframe[src*='captcha']"
+            ).evaluate_all("els => els.map(e => e.outerHTML.slice(0, 200))")
+            # Wait to see if a managed challenge auto-clears.
+            waited_inputs: list[str] = []
+            authed_hint = ""
+            for _ in range(10):
+                await page.wait_for_timeout(6000)
+                try:
+                    waited_inputs = await page.locator("input").evaluate_all(
+                        "els => els.map(e => e.outerHTML.slice(0, 160))"
+                    )
+                except Exception:
+                    waited_inputs = []
+                if waited_inputs:
+                    break
+                try:
+                    if "auth_token" in [c["name"] for c in await ctx.cookies()]:
+                        authed_hint = "auth_token appeared"
+                        break
+                except Exception:
+                    pass
             return {
                 "url": page.url,
                 "title": await page.title(),
@@ -103,9 +127,13 @@ async def debug_login_page(user_agent: str) -> dict:
                 "inputs": inputs[:8],
                 "buttons": [b for b in buttons if b.strip()][:12],
                 "has_challenge": any(
-                    s in html.lower()
+                    s in low
                     for s in ["arkose", "funcaptcha", "challenge-platform", "attention required"]
                 ),
+                "challenge_nodes": csp[:4],
+                "body_snippet": re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))[:600],
+                "waited_inputs": waited_inputs[:8],
+                "authed_hint": authed_hint,
             }
         finally:
             await browser.close()
