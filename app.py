@@ -1050,12 +1050,28 @@ async def search(
     product: Literal["Top", "Latest", "Media"] = "Latest",
     count: int = Query(20, ge=1, le=20),
 ):
-    # Search requires auth: X blocks SearchTimeline for guest tokens
-    # (GraphQL, adaptive, typeahead and v1.1 variants all 404 — verified
-    # live). Import cookies via POST /cookies or COOKIES_JSON first.
-    await ensure_login()
-    tweets = await client.search_tweet(q, product, count=count)
-    return [tweet_to_dict(t) for t in tweets]
+    # Authed API search when logged in; otherwise fall back to headless
+    # logged-out page scraping (guest SearchTimeline is blocked by X).
+    if _logged_in:
+        tweets = await client.search_tweet(q, product, count=count)
+        return [tweet_to_dict(t) for t in tweets]
+    try:
+        await ensure_login()
+        tweets = await client.search_tweet(q, product, count=count)
+        return [tweet_to_dict(t) for t in tweets]
+    except HTTPException:
+        pass
+    try:
+        from browser_login import browser_search
+
+        return await asyncio.wait_for(
+            browser_search(q, client._user_agent, max_tweets=count), timeout=300
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"browser search failed: {type(e).__name__}: {str(e)[:200]}",
+        )
 
 
 @app.get("/search-users")

@@ -118,6 +118,80 @@ async def debug_login_submit(user_agent: str, identifier: str) -> dict:
             await browser.close()
 
 
+async def browser_search(query: str, user_agent: str, max_tweets: int = 10) -> list[dict]:
+    """Scrape logged-out search results page via headless Chromium.
+
+    X blocks SearchTimeline for guest API tokens, but the logged-out
+    /search page renders tweet articles in-DOM. Returns
+    [{id, text, user, created_at}] (best effort, may be empty).
+    """
+    import re as _re
+    from playwright.async_api import async_playwright
+
+    await _ensure_browser()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        try:
+            ctx = await browser.new_context(
+                user_agent=user_agent,
+                locale="en-US",
+                viewport={"width": 1280, "height": 2000},
+            )
+            page = await ctx.new_page()
+            url = (
+                "https://x.com/search?q=" + _re.quote(query)
+                + "&src=typed_query&f=live"
+            )
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            except Exception as e:
+                raise RuntimeError(f"search page load failed: {e!r}"[:300])
+            # Wait for tweet articles to hydrate (challenge may hold first).
+            for _ in range(20):
+                await page.wait_for_timeout(6000)
+                try:
+                    n = await page.locator('article[data-testid="tweet"]').count()
+                except Exception:
+                    n = 0
+                if n:
+                    break
+            try:
+                cards = await page.locator('article[data-testid="tweet"]').evaluate_all(
+                    """els => els.slice(0, 30).map(a => {
+                        const t = a.querySelector('div[data-testid="tweetText"]');
+                        const time = a.querySelector('time');
+                        const user = a.querySelector('div[data-testid="User-Name"]');
+                        const link = a.querySelector('a[href*="/status/"]');
+                        return {
+                            text: t ? t.innerText.slice(0, 500) : '',
+                            created_at: time ? (time.getAttribute('datetime') || '') : '',
+                            user: user ? user.innerText.split('\\n')[0].slice(0, 80) : '',
+                            status_href: link ? (link.getAttribute('href') || '') : ''
+                        };
+                    })"""
+                )
+            except Exception as e:
+                raise RuntimeError(f"scrape failed: {e!r}"[:300])
+            out: list[dict] = []
+            for c in cards:
+                m = _re.search(r"/status/(\d+)", c.get("status_href") or "")
+                if not c.get("text") and not m:
+                    continue
+                out.append(
+                    {
+                        "id": m.group(1) if m else "",
+                        "text": c.get("text", ""),
+                        "user": {"name": c.get("user", ""), "screen_name": ""},
+                        "created_at": c.get("created_at", ""),
+                    }
+                )
+                if len(out) >= max_tweets:
+                    break
+            return out
+        finally:
+            await browser.close()
+
+
 async def debug_login_page(user_agent: str) -> dict:
     """Load x.com/login headlessly and report what renders (for selector debugging)."""
     from playwright.async_api import async_playwright
