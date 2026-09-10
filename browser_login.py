@@ -148,6 +148,7 @@ async def browser_search(query: str, user_agent: str, max_tweets: int = 10) -> l
             except Exception as e:
                 raise RuntimeError(f"search page load failed: {e!r}"[:300])
             # Wait for tweet articles to hydrate (challenge may hold first).
+            n = 0
             for _ in range(20):
                 await page.wait_for_timeout(6000)
                 try:
@@ -156,6 +157,16 @@ async def browser_search(query: str, user_agent: str, max_tweets: int = 10) -> l
                     n = 0
                 if n:
                     break
+            if not n:
+                try:
+                    body_txt = await page.locator("body").evaluate(
+                        "b => b.innerText.slice(0, 400)"
+                    )
+                except Exception:
+                    body_txt = ""
+                raise RuntimeError(
+                    f"no tweets rendered. url={page.url} body={body_txt!r}"[:500]
+                )
             try:
                 cards = await page.locator('article[data-testid="tweet"]').evaluate_all(
                     """els => els.slice(0, 30).map(a => {
