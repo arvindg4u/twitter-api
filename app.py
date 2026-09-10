@@ -353,6 +353,7 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
                         "count": 20,
                         "querySource": "typed_query",
                         "product": "Top",
+                        "withQuickPromoteEligibilityTweetFields": True,
                     },
                     "features": _TF,
                     "fieldToggles": {"withArticleRichContentState": False},
