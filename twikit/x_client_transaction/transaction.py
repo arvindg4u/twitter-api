@@ -14,7 +14,12 @@ from .utils import float_to_hex, is_odd, base64_encode, handle_x_migration
 
 ON_DEMAND_FILE_REGEX = re.compile(
     r',(\d+):["\']ondemand\.s["\']', flags=(re.VERBOSE | re.MULTILINE))
+# Current X frontend embeds the webpack chunk map as `59924:"ondemand.s"`
+# (quotes around the number are optional) with the content hash in a
+# separate `59924:"<hex>"` entry (see https://x.com/home HTML).
+ON_DEMAND_FILE_REGEX_NEW = re.compile(r'"?(\d+)"?:"ondemand\.s"')
 ON_DEMAND_HASH_PATTERN = r',{}:["\']([0-9a-f]+)["\']'
+ON_DEMAND_HASH_PATTERN_NEW = r'"?{0}"?:"([0-9a-f]{{10,}})"'
 INDICES_REGEX = re.compile(r'\[(\d+)\],\s*16')
 
 
@@ -38,21 +43,62 @@ class ClientTransaction:
         self.animation_key = self.get_animation_key(
             key_bytes=self.key_bytes, response=self.home_page_response)
 
+    async def _fetch_indices_from_js(self, session, headers, file_hash):
+        """Download ondemand.s.<hash>a.js and extract KEY_BYTE indices."""
+        indices = []
+        on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{file_hash}a.js"
+        on_demand_file_response = await session.request(
+            method="GET", url=on_demand_file_url, headers=headers)
+        for item in INDICES_REGEX.finditer(on_demand_file_response.text):
+            indices.append(item.group(1))
+        return indices
+
     async def get_indices(self, home_page_response, session, headers):
         key_byte_indices = []
         response = self.validate_response(
             home_page_response) or self.home_page_response
-        on_demand_match = ON_DEMAND_FILE_REGEX.search(str(response))
+        page = str(response)
+        # Format 1 (older): `,<chunk>:"ondemand.s"` + `,<chunk>:"<hash>"`
+        on_demand_match = ON_DEMAND_FILE_REGEX.search(page)
         if on_demand_match:
             chunk_index = on_demand_match.group(1)
             hash_match = re.search(
-                ON_DEMAND_HASH_PATTERN.format(chunk_index), str(response))
+                ON_DEMAND_HASH_PATTERN.format(chunk_index), page)
             if hash_match:
-                file_hash = hash_match.group(1)
-                on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{file_hash}a.js"
-                on_demand_file_response = await session.request(method="GET", url=on_demand_file_url, headers=headers)
-                for item in INDICES_REGEX.finditer(on_demand_file_response.text):
-                    key_byte_indices.append(item.group(1))
+                key_byte_indices = await self._fetch_indices_from_js(
+                    session, headers, hash_match.group(1))
+        # Format 2 (current X frontend): `"<chunk>":"ondemand.s"` in the
+        # webpack chunk map (see https://x.com/home HTML) with the hash in
+        # a separate `"<chunk>":"<hex>"` entry.
+        if not key_byte_indices:
+            on_demand_match = ON_DEMAND_FILE_REGEX_NEW.search(page)
+            if on_demand_match:
+                chunk_index = on_demand_match.group(1)
+                hash_match = re.search(
+                    ON_DEMAND_HASH_PATTERN_NEW.format(chunk_index), page)
+                if hash_match:
+                    key_byte_indices = await self._fetch_indices_from_js(
+                        session, headers, hash_match.group(1))
+        # Format 3 (fallback): the logged-out landing page (https://x.com)
+        # no longer embeds the chunk map — refetch from /home which does.
+        if not key_byte_indices:
+            home_response = await session.request(
+                method="GET", url="https://x.com/home", headers=headers)
+            import bs4 as _bs4
+            home_page = _bs4.BeautifulSoup(home_response.content, 'lxml')
+            home_str = str(home_page)
+            on_demand_match = ON_DEMAND_FILE_REGEX_NEW.search(
+                home_str) or ON_DEMAND_FILE_REGEX.search(home_str)
+            if on_demand_match:
+                chunk_index = on_demand_match.group(1)
+                hash_match = re.search(
+                    ON_DEMAND_HASH_PATTERN_NEW.format(chunk_index),
+                    home_str) or re.search(
+                    ON_DEMAND_HASH_PATTERN.format(chunk_index), home_str)
+                if hash_match:
+                    key_byte_indices = await self._fetch_indices_from_js(
+                        session, headers, hash_match.group(1))
+                    self.home_page_response = home_page
         if not key_byte_indices:
             raise Exception("Couldn't get KEY_BYTE indices")
         key_byte_indices = list(map(int, key_byte_indices))
