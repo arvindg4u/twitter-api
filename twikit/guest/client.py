@@ -172,6 +172,9 @@ class GuestClient:
 
     @proxy.setter
     def proxy(self, url: str) -> None:
+        # Don't clobber a custom transport= when url is None (see Client).
+        if url is None:
+            return
         self.http._mounts = {
             URLPattern('all://'): AsyncHTTPTransport(proxy=url)
         }

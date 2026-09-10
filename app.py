@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from twikit import Client
+from twikit.guest import GuestClient
 
 app = FastAPI(title="twitter-api", version="1.0.0")
 
@@ -45,17 +46,33 @@ TLS_IMPERSONATE = os.getenv("TLS_IMPERSONATE", "chrome")
 # but defeats Cloudflare flagging reused datacenter connections.
 FRESH_SESSION = os.getenv("FRESH_SESSION", "true").lower() in ("1", "true", "yes")
 
-if TLS_IMPERSONATE:
+def _make_transport() -> object | None:
+    if not TLS_IMPERSONATE:
+        return None
     from curl_transport import CurlCffiTransport
 
-    client = Client(
-        "en-US",
-        transport=CurlCffiTransport(TLS_IMPERSONATE, fresh_session_per_request=FRESH_SESSION),
+    return CurlCffiTransport(
+        TLS_IMPERSONATE, fresh_session_per_request=FRESH_SESSION
     )
-else:
-    client = Client("en-US")
+
+
+_transport = _make_transport()
+client = Client("en-US", **({"transport": _transport} if _transport else {}))
+guest = GuestClient("en-US", **({"transport": _make_transport()} if _transport else {}))
 _logged_in = False
 _login_lock = asyncio.Lock()
+_guest_ready = False
+_guest_lock = asyncio.Lock()
+
+
+async def ensure_guest() -> None:
+    """Activate guest session (no credentials) for read-only endpoints."""
+    global _guest_ready
+    async with _guest_lock:
+        if _guest_ready:
+            return
+        await guest.activate()
+        _guest_ready = True
 
 
 async def prime_cookies() -> dict:
@@ -477,8 +494,8 @@ async def search_users(q: str = Query(...), count: int = Query(20, ge=1, le=20))
 
 @app.get("/user/{screen_name}")
 async def get_user(screen_name: str):
-    await ensure_login()
-    u = await client.get_user_by_screen_name(screen_name)
+    await ensure_guest()
+    u = await guest.get_user_by_screen_name(screen_name)
     return {
         "id": u.id,
         "name": u.name,
@@ -496,16 +513,16 @@ async def get_user_tweets(
     tweet_type: Literal["Tweets", "Replies", "Media", "Likes"] = "Tweets",
     count: int = Query(20, ge=1, le=40),
 ):
-    await ensure_login()
-    u = await client.get_user_by_screen_name(screen_name)
+    await ensure_guest()
+    u = await guest.get_user_by_screen_name(screen_name)
     tweets = await u.get_tweets(tweet_type, count=count)
     return [tweet_to_dict(t) for t in tweets]
 
 
 @app.get("/tweet/{tweet_id}")
 async def get_tweet(tweet_id: str):
-    await ensure_login()
-    t = await client.get_tweet_by_id(tweet_id)
+    await ensure_guest()
+    t = await guest.get_tweet_by_id(tweet_id)
     return tweet_to_dict(t)
 
 
