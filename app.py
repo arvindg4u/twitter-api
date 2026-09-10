@@ -403,7 +403,7 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             from twikit.utils import Flow as Flow2
 
             c3 = TwikitClient2("en-US", transport=CapT2())
-            f3 = Flow2(c3, token)
+            f3 = Flow2(c3, gt)
             _body = {
                 "input_flow_data": {
                     "flow_context": {
