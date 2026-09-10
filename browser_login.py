@@ -408,6 +408,11 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                     raise RuntimeError("account suspended or locked. " + state)
                 if "wrong" in low and "password" in low:
                     raise RuntimeError("wrong password rejected by X. " + state)
+                if "temporarily limited" in low or "try again later" in low:
+                    raise RuntimeError(
+                        "RATE_LIMITED: X temporarily limited logins from this "
+                        "IP/account (too many attempts). Wait 30-60 min and retry. " + state
+                    )
                 if "could not log you in" in low or "try again" in low or "something went wrong" in low:
                     raise RuntimeError("X rejected the login attempt. " + state)
                 raise RuntimeError("login did not complete; no auth_token cookie. " + state)
