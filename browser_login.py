@@ -246,10 +246,28 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                     + str(await visible_inputs())[:600]
                 )
 
-            # Step 1: identifier. Prefer email: X's jf form routes unknown
-            # usernames to signup, while a verified email stays on login.
-            first_id = email or username.lstrip("@")
-            await user_input.fill(first_id)
+            # Step 1: identifier. The jf "Use password" screen can show TWO
+            # fields (username + email/phone confirmation): fill every
+            # visible text input — first gets the username, any other gets
+            # the email.
+            ids = [username.lstrip("@")]
+            if email and email not in ids:
+                ids.append(email)
+            try:
+                fields = page.locator(
+                    "#jf-input-username_or_email, input:visible:not([type=password]):not([type=hidden]):not([type=checkbox])"
+                )
+                n = await fields.count()
+            except Exception:
+                n = 0
+            if n >= 2:
+                for i in range(min(n, len(ids) + 1)):
+                    try:
+                        await fields.nth(i).fill(ids[min(i, len(ids) - 1)])
+                    except Exception:
+                        pass
+            else:
+                await user_input.fill(ids[-1])
             await page.wait_for_timeout(2500)
             # jf form's submit is a bare "Continue" button. Match it exactly:
             # "Continue with phone/Google/Apple" are SSO/signup options.
