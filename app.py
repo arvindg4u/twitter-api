@@ -360,12 +360,29 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
                 }
             )
             # flatten_params already JSON-encodes nested values
-            surl = (
-                "https://x.com/i/api/graphql/KPSo2_UWdOMpPJwjhfT1Qg/SearchTimeline?"
-                + _up.urlencode(sparams)
+            from twifork_constants_ref import SEARCH_TIMELINE_FEATURES as _STF
+
+            sparams = _fp(
+                {
+                    "variables": {
+                        "rawQuery": "python",
+                        "count": 20,
+                        "querySource": "typed_query",
+                        "product": "Top",
+                    },
+                    "features": _STF,
+                }
             )
-            rs = await s.get(url=surl, headers=base_gql_h, timeout=60)
-            steps["search_raw"] = f"status={rs.status_code} {rs.text[:300]}"
+            for qid in (
+                "BGd0T_j7oVwlW5U79tO_0A",  # twifork Aug-2026
+                "KPSo2_UWdOMpPJwjhfT1Qg",  # scraped from main bundle Sep-2026
+            ):
+                surl = (
+                    f"https://x.com/i/api/graphql/{qid}/SearchTimeline?"
+                    + _up.urlencode(sparams)
+                )
+                rs = await s.get(url=surl, headers=base_gql_h, timeout=60)
+                steps[f"search_{qid[:6]}"] = f"status={rs.status_code} {rs.text[:200]}"
             # K) adaptive (URT/REST) search endpoint
             aurl = (
                 "https://x.com/i/api/2/search/adaptive.json?"
