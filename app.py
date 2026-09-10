@@ -664,6 +664,14 @@ async def diag_login() -> dict:
                 headers=h1, json=body, timeout=60,
             )
             steps["exp_xhost"] = f"status={r3.status_code} {r3.text[:200]}"
+            # O) new jfapi login entrypoint (no castle_token — see what it says)
+            r4 = await fresh4.post(
+                "https://x.com/i/jfapi/onboarding/web/actions/begin_login",
+                headers={k: v for k, v in h1.items() if k != "x-guest-token"},
+                json={},
+                timeout=60,
+            )
+            steps["exp_jfapi"] = f"status={r4.status_code} {r4.text[:300]}"
     except Exception as e:
         steps["exp_g"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     # E) browser-shaped first call: flow_name in BODY, no query, no subtask_inputs
