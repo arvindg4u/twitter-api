@@ -171,6 +171,60 @@ def debug() -> dict:
     }
 
 
+@app.get("/diag-guest")
+async def diag_guest(screen_name: str = "elonmusk") -> dict:
+    """Raw guest GraphQL user lookup — shows exact X response for debugging."""
+    import httpx
+    from curl_transport import CurlCffiTransport
+
+    steps: dict = {}
+    try:
+        gt = await guest._guest_token if hasattr(guest, "_guest_token") else None
+        if not gt:
+            await ensure_guest()
+            gt = guest._guest_token
+        steps["guest_token"] = f"ok len={len(gt)} prefix={gt[:4]}"
+    except Exception as e:
+        steps["guest_token"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+        return steps
+    try:
+        tid = guest.client_transaction.generate_transaction_id(
+            "GET", "/i/api/graphql/KybxDj9RrADIITXlGG8kpw/UserByScreenName"
+        )
+        steps["tid"] = f"ok len={len(tid)}"
+    except Exception as e:
+        steps["tid"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+        return steps
+    try:
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
+        ) as s:
+            url = (
+                "https://x.com/i/api/graphql/KybxDj9RrADIITXlGG8kpw/UserByScreenName"
+                f"?variables={{\"screen_name\":\"{screen_name}\",\"withSafetyModeUserFields\":true}}"
+                f"&features={{\"hidden_profile_subscriptions_enabled\":true}}"
+            )
+            r = await s.get(
+                url,
+                headers={
+                    "User-Agent": guest._user_agent,
+                    "Accept": "*/*",
+                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                    "x-guest-token": gt,
+                    "x-twitter-active-user": "yes",
+                    "x-twitter-client-language": "en",
+                    "X-Client-Transaction-Id": tid,
+                    "Origin": "https://x.com",
+                    "Referer": "https://x.com/",
+                },
+                timeout=60,
+            )
+            steps["graphql"] = f"status={r.status_code} {r.text[:300]}"
+    except Exception as e:
+        steps["graphql"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    return steps
+
+
 @app.post("/login")
 async def do_login(x_api_key: str | None = Header(default=None)) -> dict:
     """Trigger the login flow explicitly (protected when API_KEY is set).
