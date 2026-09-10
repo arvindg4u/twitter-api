@@ -495,6 +495,21 @@ async def diag_login() -> dict:
     except Exception as e:
         steps["guest_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
         return steps
+    # N2) keep ONLY guest_activate response cookies (gt), drop homepage ones,
+    # then retry flow — X may need gt cookie, Cloudflare hates homepage ones.
+    try:
+        keep = {
+            c.name: c.value
+            for c in client.http.cookies.jar
+            if c.name in ("gt", "__cf_bm", "ct0")
+        }
+        client.set_cookies(keep, clear_cookies=True)
+        steps["cookies_kept"] = sorted(keep.keys())
+        flown = Flow(client, token)
+        await flown.execute_task(params={"flow_name": "login"}, data={})
+        steps["flow_gtcookie"] = f"ok, task={flown.task_id}"
+    except Exception as e:
+        steps["flow_gtcookie"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
     try:
         flow = Flow(client, token)
         await flow.execute_task(params={"flow_name": "login"}, data={})
