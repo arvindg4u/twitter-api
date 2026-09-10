@@ -648,8 +648,8 @@ async def search(
     product: Literal["Top", "Latest", "Media"] = "Latest",
     count: int = Query(20, ge=1, le=20),
 ):
-    await ensure_login()
-    tweets = await client.search_tweet(q, product, count=count)
+    await ensure_guest()
+    tweets = await guest.search_tweet(q, product, count=count)
     return [tweet_to_dict(t) for t in tweets]
 
 

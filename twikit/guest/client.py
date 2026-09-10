@@ -419,3 +419,65 @@ class GuestClient:
             partial(self.get_user_highlights_tweets, user_id, count, previous_cursor),
             previous_cursor
         )
+
+    async def search_tweet(
+        self,
+        query: str,
+        product: Literal['Top', 'Latest', 'Media'] = 'Latest',
+        count: int = 20,
+        cursor: str | None = None
+    ) -> Result[Tweet]:
+        """
+        Searches for tweets as a guest (no login required).
+
+        Parameters
+        ----------
+        query : :class:`str`
+            The search query.
+        product : {'Top', 'Latest', 'Media'}, default='Latest'
+            The type of tweets to retrieve.
+        count : :class:`int`, default=20
+            The number of tweets to retrieve.
+        cursor : :class:`str`, default=None
+            Token to retrieve more tweets.
+        """
+        product = product.capitalize()
+
+        response, _ = await self.gql.search_timeline(query, product, count, cursor)
+        instructions = find_dict(response, 'instructions', find_one=True)
+        if not instructions:
+            return Result([])
+        instructions = instructions[0]
+
+        entries = find_dict(instructions, 'entries', find_one=True)
+        items = entries[0] if entries else []
+        if product == 'Media' and items and 'items' in items[0].get('content', {}):
+            items = items[0]['content']['items']
+
+        next_cursor = None
+        previous_cursor = None
+        results = []
+        for item in items:
+            entry_id = item.get('entryId', '')
+            if entry_id.startswith('cursor-bottom'):
+                next_cursor = item['content']['value']
+                continue
+            if entry_id.startswith('cursor-top'):
+                previous_cursor = item['content']['value']
+                continue
+            if not entry_id.startswith(('tweet', 'search-grid')):
+                continue
+            try:
+                tweet = tweet_from_data(self, item)
+            except (KeyError, TypeError):
+                tweet = None
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.search_tweet, query, product, count, next_cursor),
+            next_cursor,
+            partial(self.search_tweet, query, product, count, previous_cursor),
+            previous_cursor
+        )
