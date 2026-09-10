@@ -227,22 +227,23 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
                 f"?variables={{\"screen_name\":\"{screen_name}\",\"withSafetyModeUserFields\":true}}"
                 f"&features={{\"hidden_profile_subscriptions_enabled\":true}}"
             )
+            base_gql_h = {
+                "User-Agent": guest._user_agent,
+                "Accept": "*/*",
+                "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                "x-guest-token": gt,
+                "x-twitter-active-user": "yes",
+                "x-twitter-client-language": "en",
+                "Origin": "https://x.com",
+                "Referer": "https://x.com/",
+            }
             r = await s.get(
-                url,
-                headers={
-                    "User-Agent": guest._user_agent,
-                    "Accept": "*/*",
-                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
-                    "x-guest-token": gt,
-                    "x-twitter-active-user": "yes",
-                    "x-twitter-client-language": "en",
-                    "X-Client-Transaction-Id": tid,
-                    "Origin": "https://x.com",
-                    "Referer": "https://x.com/",
-                },
+                url, headers={**base_gql_h, "X-Client-Transaction-Id": tid},
                 timeout=60,
             )
-            steps["graphql"] = f"status={r.status_code} {r.text[:300]}"
+            steps["graphql_tid"] = f"status={r.status_code} {r.text[:200]}"
+            r2 = await s.get(url, headers=base_gql_h, timeout=60)
+            steps["graphql_notid"] = f"status={r2.status_code} {r2.text[:200]}"
     except Exception as e:
         steps["graphql"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
