@@ -287,6 +287,15 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             steps["graphql_tid"] = f"status={r.status_code} {r.text[:200]}"
             r2 = await s.get(url, headers=base_gql_h, timeout=60)
             steps["graphql_notid"] = f"status={r2.status_code} {r2.text[:200]}"
+            try:
+                res = r2.json()["data"]["user"]["result"]
+                steps["schema"] = (
+                    f"typename={res.get('__typename')} top_keys={sorted(res.keys())} "
+                    f"core_keys={sorted((res.get('core') or {}).keys())} "
+                    f"has_legacy={'legacy' in res}"
+                )
+            except Exception as e:
+                steps["schema"] = f"FAIL: {type(e).__name__}: {r2.text[:200]}"
             # I) same URL but with twikit's _base_headers (has OAuth2Session auth-type)
             r3 = await s.get(url, headers=dict(guest._base_headers, **{"x-guest-token": gt}), timeout=60)
             steps["graphql_baseh"] = f"status={r3.status_code} {r3.text[:200]}"
