@@ -38,6 +38,10 @@ PASSWORD = os.getenv("TWITTER_PASSWORD")
 TOTP_SECRET = os.getenv("TWITTER_TOTP_SECRET")
 API_KEY = os.getenv("API_KEY")  # if set, write endpoints require x-api-key header
 COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies.json")
+# COOKIES_JSON: paste the whole cookies.json content as an env var (easiest
+# path on Render: dashboard -> Environment -> add secret). Takes precedence
+# over COOKIES_FILE when set and non-empty.
+COOKIES_JSON = os.getenv("COOKIES_JSON", "")
 # Browser TLS impersonation via curl_cffi (default: chrome). Set to empty to
 # disable and use stock httpx. Needed because Cloudflare challenges
 # datacenter IPs with non-browser TLS fingerprints.
@@ -136,11 +140,26 @@ async def ensure_login() -> None:
     browser-exported cookies.json at COOKIES_FILE (Render Secret File) and
     login is bypassed via load_cookies.
     """
+    import json as _json
     import os as _os
 
     global _logged_in
     async with _login_lock:
         if _logged_in:
+            return
+        if COOKIES_JSON.strip():
+            try:
+                data = _json.loads(COOKIES_JSON)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=500, detail=f"COOKIES_JSON is not valid JSON: {e}"
+                )
+            cookies = data if isinstance(data, dict) else {
+                c.get("name"): c.get("value")
+                for c in data if isinstance(c, dict) and c.get("name")
+            }
+            client.set_cookies({k: v for k, v in cookies.items() if v})
+            _logged_in = True
             return
         if COOKIES_FILE and _os.path.exists(COOKIES_FILE):
             client.load_cookies(COOKIES_FILE)
@@ -200,9 +219,53 @@ class DMIn(BaseModel):
     text: str
 
 
+class CookiesIn(BaseModel):
+    """Browser-exported cookies: either a name->value dict or a list of
+    {name, value} objects (extension export format)."""
+
+    cookies: dict | list
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.post("/cookies")
+async def import_cookies(body: CookiesIn, x_api_key: str | None = Header(default=None)) -> dict:
+    """Import browser cookies at runtime (no redeploy needed) and verify them
+    with a live authed call. Protected when API_KEY is set."""
+    check_api_key(x_api_key)
+    global _logged_in
+    data = body.cookies
+    cookies = data if isinstance(data, dict) else {
+        c.get("name"): c.get("value")
+        for c in data if isinstance(c, dict) and c.get("name")
+    }
+    cookies = {k: v for k, v in cookies.items() if v}
+    if "auth_token" not in cookies or "ct0" not in cookies:
+        raise HTTPException(
+            status_code=400,
+            detail="cookies must include at least auth_token and ct0",
+        )
+    async with _login_lock:
+        _logged_in = False
+        client.set_cookies(cookies, clear_cookies=True)
+        try:
+            me = await client.get_user_by_screen_name((USERNAME or "").lstrip("@") or "x")
+        except Exception as e:
+            client.http.cookies.clear()
+            raise HTTPException(
+                status_code=401,
+                detail=f"cookies rejected by X: {type(e).__name__}: {str(e)[:200]}",
+            )
+        _logged_in = True
+        try:
+            client.save_cookies(COOKIES_FILE)
+            saved = COOKIES_FILE
+        except Exception:
+            saved = None
+        return {"logged_in": True, "id": me.id, "name": me.name, "saved_to": saved}
 
 
 @app.get("/debug")
