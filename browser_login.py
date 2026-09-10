@@ -70,6 +70,47 @@ async def _page_text(page) -> str:
         return ""
 
 
+async def debug_login_page(user_agent: str) -> dict:
+    """Load x.com/login headlessly and report what renders (for selector debugging)."""
+    from playwright.async_api import async_playwright
+
+    await _ensure_browser()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        try:
+            ctx = await browser.new_context(
+                user_agent=user_agent,
+                locale="en-US",
+                viewport={"width": 1280, "height": 800},
+            )
+            page = await ctx.new_page()
+            try:
+                await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+            except Exception as e:
+                return {"goto": f"FAIL: {type(e).__name__}: {str(e)[:200]}"}
+            await page.wait_for_timeout(8000)
+            html = await page.content()
+            inputs = await page.locator("input").evaluate_all(
+                "els => els.map(e => e.outerHTML.slice(0, 160))"
+            )
+            buttons = await page.locator("button, div[role=button]").evaluate_all(
+                "els => els.map(e => (e.innerText || '').slice(0, 40))"
+            )
+            return {
+                "url": page.url,
+                "title": await page.title(),
+                "html_len": len(html),
+                "inputs": inputs[:8],
+                "buttons": [b for b in buttons if b.strip()][:12],
+                "has_challenge": any(
+                    s in html.lower()
+                    for s in ["arkose", "funcaptcha", "challenge-platform", "attention required"]
+                ),
+            }
+        finally:
+            await browser.close()
+
+
 async def browser_bootstrap(username: str, email: str, password: str, user_agent: str) -> dict:
     """Log in via headless Chromium. Returns cookies dict on success.
 

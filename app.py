@@ -268,6 +268,23 @@ async def import_cookies(body: CookiesIn, x_api_key: str | None = Header(default
         return {"logged_in": True, "id": me.id, "name": me.name, "saved_to": saved}
 
 
+@app.get("/debug-login-page")
+async def debug_login_page_ep() -> dict:
+    """Report what headless Chromium sees on x.com/login (selector debugging)."""
+    try:
+        from browser_login import debug_login_page
+
+        return await asyncio.wait_for(
+            debug_login_page(client._user_agent), timeout=300
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="debug timed out")
+    except ImportError:
+        raise HTTPException(status_code=500, detail="playwright not installed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)[:300]}")
+
+
 @app.post("/bootstrap-login")
 async def bootstrap_login(x_api_key: str | None = Header(default=None)) -> dict:
     """Mint fresh auth cookies via headless Chromium using the TWITTER_*
