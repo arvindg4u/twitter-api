@@ -215,13 +215,19 @@ async def diag_login() -> dict:
         steps["flow_login"] = f"ok, task={flow.task_id}"
     except Exception as e:
         steps["flow_login"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
-    # Experiment: raw browser-like replay of onboarding/task via curl_cffi,
-    # bypassing twikit header construction entirely.
+    # Isolate: is it the tid header or the cookies that trigger the challenge?
+    # A) twikit headers + tid but WITHOUT cookies (fresh session)
     try:
-        from curl_cffi.requests import AsyncSession
+        import httpx
+        from curl_transport import CurlCffiTransport
 
-        async with AsyncSession(impersonate="chrome") as s:
-            r = await s.post(
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome")
+        ) as fresh:
+            tid = client.client_transaction.generate_transaction_id(
+                "POST", "/1.1/onboarding/task.json"
+            )
+            r = await fresh.post(
                 "https://api.x.com/1.1/onboarding/task.json",
                 headers={
                     "User-Agent": client._user_agent,
@@ -234,13 +240,37 @@ async def diag_login() -> dict:
                     "x-guest-token": token,
                     "x-twitter-active-user": "yes",
                     "x-twitter-client-language": "en",
+                    "X-Client-Transaction-Id": tid,
                 },
                 json={"flow_name": "login", "input_flow_data": {}},
                 timeout=60,
             )
-            steps["raw_replay"] = f"status={r.status_code} body={r.text[:200]}"
+            steps["exp_tid_nocookie"] = f"status={r.status_code} {r.text[:120]}"
     except Exception as e:
-        steps["raw_replay"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+        steps["exp_tid_nocookie"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    # B) twikit headers WITHOUT tid but WITH cookies (client session)
+    try:
+        r, _ = await client.v11.base.post(
+            "https://api.x.com/1.1/onboarding/task.json",
+            json={"flow_name": "login", "input_flow_data": {}},
+            headers={
+                "User-Agent": client._user_agent,
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Content-Type": "application/json",
+                "Origin": "https://x.com",
+                "Referer": "https://x.com/",
+                "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                "x-guest-token": token,
+                "x-twitter-active-user": "yes",
+                "x-twitter-client-language": "en",
+            },
+            auto_unlock=False,
+        )
+        # NOTE: base.post adds tid automatically; this still isolates cookies.
+        steps["exp_cookies_plustid"] = f"ok task={str(r)[:120]}"
+    except Exception as e:
+        steps["exp_cookies_plustid"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
 
 
