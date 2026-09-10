@@ -277,6 +277,34 @@ async def diag_login() -> dict:
         steps["exp_cookies_plustid"] = f"ok task={str(r)[:120]}"
     except Exception as e:
         steps["exp_cookies_plustid"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    # C) client session, cookieless, WITHOUT tid (raw curl, no tid header)
+    try:
+        import httpx
+        from curl_transport import CurlCffiTransport
+
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome")
+        ) as fresh2:
+            r = await fresh2.post(
+                "https://api.x.com/1.1/onboarding/task.json",
+                headers={
+                    "User-Agent": client._user_agent,
+                    "Accept": "*/*",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Content-Type": "application/json",
+                    "Origin": "https://x.com",
+                    "Referer": "https://x.com/",
+                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                    "x-guest-token": token,
+                    "x-twitter-active-user": "yes",
+                    "x-twitter-client-language": "en",
+                },
+                json={"flow_name": "login", "input_flow_data": {}},
+                timeout=60,
+            )
+            steps["exp_notid_nocookie"] = f"status={r.status_code} {r.text[:120]}"
+    except Exception as e:
+        steps["exp_notid_nocookie"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
 
 
