@@ -288,12 +288,21 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             r2 = await s.get(url, headers=base_gql_h, timeout=60)
             steps["graphql_notid"] = f"status={r2.status_code} {r2.text[:200]}"
             try:
+                import json as _json
+
                 res = r2.json()["data"]["user"]["result"]
-                steps["schema"] = (
-                    f"typename={res.get('__typename')} top_keys={sorted(res.keys())} "
-                    f"core_keys={sorted((res.get('core') or {}).keys())} "
-                    f"has_legacy={'legacy' in res}"
-                )
+
+                def keys(o, depth=0):
+                    if isinstance(o, dict):
+                        return {
+                            k: keys(v, depth + 1) if depth < 2 else "..."
+                            for k, v in o.items()
+                        }
+                    if isinstance(o, list):
+                        return [keys(o[0], depth + 1)] if o else []
+                    return type(o).__name__
+
+                steps["schema"] = _json.dumps(keys(res))[:3000]
             except Exception as e:
                 steps["schema"] = f"FAIL: {type(e).__name__}: {r2.text[:200]}"
             # I) same URL but with twikit's _base_headers (has OAuth2Session auth-type)
