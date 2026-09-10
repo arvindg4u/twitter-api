@@ -238,13 +238,29 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
         steps["guest_token"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
         return steps
     try:
+        if not guest.client_transaction.home_page_response:
+            import httpx as _hx
+            from curl_transport import CurlCffiTransport as _CT
+
+            async with _hx.AsyncClient(
+                transport=_CT("chrome", fresh_session_per_request=True)
+            ) as tmps:
+                await guest.client_transaction.init(
+                    tmps,
+                    {
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Cache-Control": "no-cache",
+                        "Referer": "https://x.com",
+                        "User-Agent": guest._user_agent,
+                    },
+                )
         tid = guest.client_transaction.generate_transaction_id(
             "GET", "/i/api/graphql/KybxDj9RrADIITXlGG8kpw/UserByScreenName"
         )
         steps["tid"] = f"ok len={len(tid)}"
     except Exception as e:
         steps["tid"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
-        return steps
+        tid = None
     try:
         async with httpx.AsyncClient(
             transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
