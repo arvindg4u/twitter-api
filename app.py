@@ -221,6 +221,20 @@ async def diag_login() -> dict:
         steps["flow_login"] = f"ok, task={flow.task_id}"
     except Exception as e:
         steps["flow_login"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
+    # F) synthetic ct0: browsers self-generate a 160-hex ct0 cookie and echo
+    # it as x-csrf-token. Our homepage fetch never yields ct0 (JS challenge),
+    # so mint one and retry the flow step.
+    try:
+        import secrets
+
+        client.set_cookies({"ct0": secrets.token_hex(80)}, clear_cookies=False)
+        flow3 = Flow(client, token)
+        await flow3.execute_task(params={"flow_name": "login"}, data={})
+        steps["flow_synthct0"] = f"ok, task={flow3.task_id}"
+    except Exception as e:
+        steps["flow_synthct0"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
+    finally:
+        client.http.cookies.clear()
     # E) browser-shaped first call: flow_name in BODY, no query, no subtask_inputs
     try:
         import httpx
