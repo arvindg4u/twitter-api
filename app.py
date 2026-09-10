@@ -492,6 +492,42 @@ async def diag_login() -> dict:
         steps["flow_login"] = f"ok, task={flow.task_id}"
     except Exception as e:
         steps["flow_login"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
+    # M) minimal raw first call: no subtask_versions, no subtask_inputs
+    try:
+        import httpx
+        from curl_transport import CurlCffiTransport
+
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
+        ) as ms:
+            rm = await ms.post(
+                "https://api.x.com/1.1/onboarding/task.json",
+                headers={
+                    "User-Agent": client._user_agent,
+                    "Accept": "*/*",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Content-Type": "application/json",
+                    "Origin": "https://x.com",
+                    "Referer": "https://x.com/",
+                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                    "x-guest-token": token,
+                    "x-twitter-active-user": "yes",
+                    "x-twitter-client-language": "en",
+                },
+                json={
+                    "flow_name": "login",
+                    "input_flow_data": {
+                        "flow_context": {
+                            "debug_overrides": {},
+                            "start_location": {"location": "splash_screen"},
+                        }
+                    },
+                },
+                timeout=60,
+            )
+            steps["flow_minimal"] = f"status={rm.status_code} {rm.text[:250]}"
+    except Exception as e:
+        steps["flow_minimal"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     # F) synthetic ct0: browsers self-generate a 160-hex ct0 cookie and echo
     # it as x-csrf-token. Our homepage fetch never yields ct0 (JS challenge),
     # so mint one and retry the flow step.
