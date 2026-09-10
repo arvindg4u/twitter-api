@@ -43,6 +43,31 @@ _logged_in = False
 _login_lock = asyncio.Lock()
 
 
+async def prime_cookies() -> dict:
+    """Fetch the homepage first so ct0/guest cookies + csrf token exist before
+    the login flow hits api.x.com (datacenter IPs get Cloudflare-challenged
+    on a bare first request)."""
+    info: dict = {}
+    try:
+        await client.http.get(
+            "https://x.com/",
+            headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cache-Control": "no-cache",
+                "Referer": "https://x.com/",
+                "User-Agent": client._user_agent,
+            },
+        )
+    except Exception as e:
+        info["home_fetch"] = f"FAIL: {type(e).__name__}: {e}"
+    else:
+        info["home_fetch"] = "ok"
+    cookies = {c.name: c.value for c in client.http.cookies.jar}
+    info["cookies"] = sorted(cookies.keys())
+    info["csrf"] = bool(client._get_csrf_token())
+    return info
+
+
 async def ensure_login() -> None:
     """Log in once per process lifetime; reuse session cookies after that."""
     global _logged_in
@@ -54,6 +79,7 @@ async def ensure_login() -> None:
                 status_code=500,
                 detail="Missing env vars: set TWITTER_USERNAME, TWITTER_EMAIL, TWITTER_PASSWORD",
             )
+        await prime_cookies()
         await client.login(
             auth_info_1=USERNAME,
             auth_info_2=EMAIL,
@@ -126,7 +152,7 @@ async def do_login(x_api_key: str | None = Header(default=None)) -> dict:
 
 @app.get("/diag-transaction")
 async def diag_transaction() -> dict:
-    """Step-by-step diagnosis of ClientTransaction.init — shows exactly which step fails."""
+    """Run the real ClientTransaction.init against a temp session and report."""
     from twikit.x_client_transaction.transaction import ClientTransaction
     import httpx
 
@@ -140,36 +166,36 @@ async def diag_transaction() -> dict:
     }
     try:
         async with httpx.AsyncClient() as session:
-            from twikit.x_client_transaction.utils import handle_x_migration
-
-            home = await handle_x_migration(session, headers)
-            steps["fetch_home"] = f"ok, len={len(str(home))}"
             try:
-                row, idx = await ct.get_indices(home, session, headers)
-                steps["get_indices"] = f"ok, row={row}, n_indices={len(idx)}"
+                await ct.init(session, headers)
+                steps["init"] = (
+                    f"ok, row={ct.DEFAULT_ROW_INDEX}, "
+                    f"indices={ct.DEFAULT_KEY_BYTES_INDICES}, "
+                    f"key_len={len(ct.key)}, anim_len={len(ct.animation_key)}"
+                )
             except Exception as e:
-                steps["get_indices"] = f"FAIL: {type(e).__name__}: {e}"
-                return steps
+                steps["init"] = f"FAIL: {type(e).__name__}: {e}"
             try:
-                key = ct.get_key(response=home)
-                steps["get_key"] = f"ok, len={len(key)}"
+                tid = ct.generate_transaction_id("GET", "/i/api/graphql/test")
+                steps["tid"] = f"ok, len={len(tid)}"
             except Exception as e:
-                steps["get_key"] = f"FAIL: {type(e).__name__}: {e}"
-                return steps
-            try:
-                kb = ct.get_key_bytes(key=key)
-                steps["get_key_bytes"] = f"ok, n={len(kb)}"
-            except Exception as e:
-                steps["get_key_bytes"] = f"FAIL: {type(e).__name__}: {e}"
-                return steps
-            try:
-                ak = ct.get_animation_key(key_bytes=kb, response=home)
-                steps["get_animation_key"] = f"ok, len={len(ak)}"
-            except Exception as e:
-                steps["get_animation_key"] = f"FAIL: {type(e).__name__}: {e}"
-                return steps
+                steps["tid"] = f"FAIL: {type(e).__name__}: {e}"
     except Exception as e:
-        steps["fetch_home"] = f"FAIL: {type(e).__name__}: {e}"
+        steps["session"] = f"FAIL: {type(e).__name__}: {e}"
+    return steps
+
+
+@app.get("/diag-login")
+async def diag_login() -> dict:
+    """Prime cookies (like ensure_login does) then attempt guest_activate only.
+    Shows whether Cloudflare still blocks api.x.com from Render."""
+    steps: dict = {}
+    steps["prime"] = await prime_cookies()
+    try:
+        token = await client._get_guest_token()
+        steps["guest_activate"] = f"ok, token_len={len(token)}"
+    except Exception as e:
+        steps["guest_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
     return steps
 
 
