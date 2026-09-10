@@ -305,29 +305,38 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
                 steps["schema"] = _json.dumps(keys(res))[:3000]
             except Exception as e:
                 steps["schema"] = f"FAIL: {type(e).__name__}: {r2.text[:200]}"
-            # Tweet schema dump via fresh TweetDetail query
+            # Tweet schema dump via twikit's own TweetResultByRestId path
             try:
+                from twikit.utils import flatten_params
+
+                tv = {
+                    "tweetId": "20",
+                    "withCommunity": False,
+                    "includePromotedContent": False,
+                    "withVoice": False,
+                }
+                from twikit.constants import TWEET_RESULT_BY_REST_ID_FEATURES as TWEET_FEATURES
+
+                tparams = flatten_params(
+                    {
+                        "variables": tv,
+                        "features": TWEET_FEATURES,
+                        "fieldToggles": {
+                            "withArticleRichContentState": True,
+                            "withArticlePlainText": False,
+                            "withGrokAnalyze": False,
+                        },
+                    }
+                )
+                import urllib.parse as _up
+
                 turl = (
-                    "https://x.com/i/api/graphql/FyR-GrebyjdkRoW1z6uCgQ/TweetDetail"
-                    '?variables={"focalTweetId":"20","with_rux_injections":false,'
-                    '"rankingMode":"Relevance","includePromotedContent":true,'
-                    '"withCommunity":true,"withQuickPromoteEligibilityTweetFields":true,'
-                    '"withBirdwatchNotes":true,"withVoice":true}'
-                    '&features={"rweb_tipjar_consumption_enabled":true}'
+                    "https://x.com/i/api/graphql/snmujSvB_9WXyd8yjvZ24Q/TweetResultByRestId?"
+                    + _up.urlencode(tparams)
                 )
                 rt = await s.get(url=turl, headers=base_gql_h, timeout=60)
-                tinst = (rt.json()["data"].get("threaded_conversation_with_injections_v2") or {})
-                tins = (tinst.get("instructions") or [])
-                t0 = None
-                for ins in tins:
-                    for e in (ins.get("entries") or []):
-                        c = ((e.get("content") or {}).get("itemContent") or {})
-                        if c.get("__typename") == "TimelineTweet":
-                            t0 = c.get("tweet_results", {}).get("result")
-                            break
-                    if t0:
-                        break
-                steps["tweet_schema"] = _json.dumps(keys(t0))[:2500] if t0 else "no-tweet-found"
+                tdata = rt.json()["data"]["tweetResult"]["result"]
+                steps["tweet_schema"] = _json.dumps(keys(tdata))[:2500]
             except Exception as e:
                 steps["tweet_schema"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
             # I) same URL but with twikit's _base_headers (has OAuth2Session auth-type)
