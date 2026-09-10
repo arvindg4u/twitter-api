@@ -178,6 +178,30 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
     from curl_transport import CurlCffiTransport
 
     steps: dict = {}
+    # Raw guest_activate exactly like a bare urllib call (no tid, no cookies,
+    # no extra headers) — isolates whether the endpoint itself 404s from Render.
+    try:
+        import httpx
+        from curl_transport import CurlCffiTransport
+
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
+        ) as raws:
+            rr = await raws.post(
+                "https://api.x.com/1.1/guest/activate.json",
+                headers={
+                    "User-Agent": guest._user_agent,
+                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                    "content-type": "application/json",
+                    "Origin": "https://x.com",
+                    "Referer": "https://x.com/",
+                },
+                content=b"{}",
+                timeout=60,
+            )
+            steps["raw_activate"] = f"status={rr.status_code} {rr.text[:120]}"
+    except Exception as e:
+        steps["raw_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     try:
         if not guest._guest_token:
             await ensure_guest()
