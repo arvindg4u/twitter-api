@@ -199,8 +199,10 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                     + str(await visible_inputs())[:600]
                 )
 
-            # Step 1: username / phone / email (X wants it without '@').
-            await user_input.fill(username.lstrip("@"))
+            # Step 1: identifier. Prefer email: X's jf form routes unknown
+            # usernames to signup, while a verified email stays on login.
+            first_id = email or username.lstrip("@")
+            await user_input.fill(first_id)
             await page.wait_for_timeout(2500)
             # NB: never click "Continue with phone" — that opens signup.
             # The jf form reveals its submit button after typing; re-scan.
@@ -242,7 +244,7 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                     await page.wait_for_timeout(8000)
                     user_input = page.locator("#jf-input-username_or_email").first
                     await user_input.wait_for(state="visible", timeout=25000)
-                    await user_input.fill(username.lstrip("@"))
+                    await user_input.fill(first_id)
                     await page.wait_for_timeout(2500)
                     await user_input.press("Tab")
                     await page.keyboard.press("Enter")
