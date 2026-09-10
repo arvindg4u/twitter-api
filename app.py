@@ -19,7 +19,57 @@ from pydantic import BaseModel
 from twikit import Client
 from twikit.guest import GuestClient
 
-app = FastAPI(title="twitter-api", version="1.0.0")
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if AUTO_LOGIN_RETRY and all([USERNAME, EMAIL, PASSWORD]):
+        asyncio.create_task(_auto_login_loop())
+    yield
+
+
+app = FastAPI(title="twitter-api", version="1.0.0", lifespan=lifespan)
+
+
+async def _auto_login_loop() -> None:
+    """Retry browser login every 6h until cookies are minted (rate limits
+    clear with time). Stops permanently once logged in."""
+    import logging
+
+    log = logging.getLogger("auto-login")
+    while True:
+        await asyncio.sleep(6 * 3600)
+        global _logged_in
+        if _logged_in:
+            return
+        try:
+            from browser_login import browser_bootstrap
+
+            cookies = await asyncio.wait_for(
+                browser_bootstrap(USERNAME, EMAIL, PASSWORD, client._user_agent),
+                timeout=900,
+            )
+        except Exception as e:
+            log.warning("auto-login retry failed: %s", str(e)[:200])
+            continue
+        async with _login_lock:
+            client.set_cookies(
+                {k: v for k, v in cookies.items() if v}, clear_cookies=True
+            )
+            try:
+                await client.get_user_by_screen_name(USERNAME.lstrip("@"))
+            except Exception as e:
+                client.http.cookies.clear()
+                log.warning("auto-login cookies rejected: %s", str(e)[:200])
+                continue
+            _logged_in = True
+            try:
+                client.save_cookies(COOKIES_FILE)
+            except Exception:
+                pass
+            log.warning("auto-login succeeded")
+            return
 
 
 @app.exception_handler(Exception)
@@ -38,6 +88,9 @@ PASSWORD = os.getenv("TWITTER_PASSWORD")
 TOTP_SECRET = os.getenv("TWITTER_TOTP_SECRET")
 API_KEY = os.getenv("API_KEY")  # if set, write endpoints require x-api-key header
 COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies.json")
+# AUTO_LOGIN_RETRY=1: background task retries browser login every 6h until it
+# succeeds (for X-side rate limits that clear with time). Off by default.
+AUTO_LOGIN_RETRY = os.getenv("AUTO_LOGIN_RETRY", "") in ("1", "true", "yes")
 # COOKIES_JSON: paste the whole cookies.json content as an env var (easiest
 # path on Render: dashboard -> Environment -> add secret). Takes precedence
 # over COOKIES_FILE when set and non-empty.
