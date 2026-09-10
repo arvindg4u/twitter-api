@@ -112,6 +112,55 @@ def debug() -> dict:
     }
 
 
+@app.get("/diag-transaction")
+async def diag_transaction() -> dict:
+    """Step-by-step diagnosis of ClientTransaction.init — shows exactly which step fails."""
+    from twikit.x_client_transaction.transaction import ClientTransaction
+    import httpx
+
+    steps: dict = {}
+    ct = ClientTransaction()
+    headers = {
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Referer": "https://x.com",
+        "User-Agent": client._user_agent,
+    }
+    try:
+        async with httpx.AsyncClient() as session:
+            from twikit.x_client_transaction.utils import handle_x_migration
+
+            home = await handle_x_migration(session, headers)
+            steps["fetch_home"] = f"ok, len={len(str(home))}"
+            try:
+                row, idx = await ct.get_indices(home, session, headers)
+                steps["get_indices"] = f"ok, row={row}, n_indices={len(idx)}"
+            except Exception as e:
+                steps["get_indices"] = f"FAIL: {type(e).__name__}: {e}"
+                return steps
+            try:
+                key = ct.get_key(response=home)
+                steps["get_key"] = f"ok, len={len(key)}"
+            except Exception as e:
+                steps["get_key"] = f"FAIL: {type(e).__name__}: {e}"
+                return steps
+            try:
+                kb = ct.get_key_bytes(key=key)
+                steps["get_key_bytes"] = f"ok, n={len(kb)}"
+            except Exception as e:
+                steps["get_key_bytes"] = f"FAIL: {type(e).__name__}: {e}"
+                return steps
+            try:
+                ak = ct.get_animation_key(key_bytes=kb, response=home)
+                steps["get_animation_key"] = f"ok, len={len(ak)}"
+            except Exception as e:
+                steps["get_animation_key"] = f"FAIL: {type(e).__name__}: {e}"
+                return steps
+    except Exception as e:
+        steps["fetch_home"] = f"FAIL: {type(e).__name__}: {e}"
+    return steps
+
+
 @app.get("/search")
 async def search(
     q: str = Query(..., description="Search query"),
