@@ -8,3 +8,4 @@ m3u8
 Js2Py-3.13
 fastapi
 uvicorn[standard]
+curl_cffi

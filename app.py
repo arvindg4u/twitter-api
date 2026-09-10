@@ -37,8 +37,17 @@ PASSWORD = os.getenv("TWITTER_PASSWORD")
 TOTP_SECRET = os.getenv("TWITTER_TOTP_SECRET")
 API_KEY = os.getenv("API_KEY")  # if set, write endpoints require x-api-key header
 COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies.json")
+# Browser TLS impersonation via curl_cffi (default: chrome). Set to empty to
+# disable and use stock httpx. Needed because Cloudflare challenges
+# datacenter IPs with non-browser TLS fingerprints.
+TLS_IMPERSONATE = os.getenv("TLS_IMPERSONATE", "chrome")
 
-client = Client("en-US")
+if TLS_IMPERSONATE:
+    from curl_transport import CurlCffiTransport
+
+    client = Client("en-US", transport=CurlCffiTransport(TLS_IMPERSONATE))
+else:
+    client = Client("en-US")
 _logged_in = False
 _login_lock = asyncio.Lock()
 
