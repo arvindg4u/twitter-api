@@ -199,17 +199,32 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                     + str(await visible_inputs())[:600]
                 )
 
-            # Step 1: username / phone / email.
-            await user_input.fill(username)
-            if not await _click_button(
-                page, ["Next", "Continue", "Continue with phone"]
-            ):
+            # Step 1: username / phone / email (X wants it without '@').
+            await user_input.fill(username.lstrip("@"))
+            # NB: never click "Continue with phone" — that opens signup.
+            if not await _click_button(page, ["Next"]):
                 # jf form: submit button may follow the input; press Enter.
                 try:
                     await user_input.press("Enter")
                 except Exception:
-                    raise RuntimeError("username-step: Next/Continue button not found")
+                    raise RuntimeError("username-step: Next button not found")
             await page.wait_for_timeout(5000)
+            # Guard: if we landed on signup, go back to the login form.
+            try:
+                if "/signup" in page.url:
+                    await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+                    await page.wait_for_timeout(5000)
+                    user_input = page.locator(
+                        "#jf-input-username_or_email"
+                    ).first
+                    await user_input.wait_for(state="visible", timeout=25000)
+                    await user_input.fill(username.lstrip("@"))
+                    await user_input.press("Enter")
+                    await page.wait_for_timeout(5000)
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
 
             # Possible identifier-verification step ("enter email/phone").
             for _ in range(2):
