@@ -47,6 +47,7 @@ async def prime_cookies() -> dict:
     """Fetch the homepage first so ct0/guest cookies + csrf token exist before
     the login flow hits api.x.com (datacenter IPs get Cloudflare-challenged
     on a bare first request)."""
+    client.http.cookies.clear()  # avoid duplicate gt cookies on repeat calls
     info: dict = {}
     try:
         await client.http.get(
