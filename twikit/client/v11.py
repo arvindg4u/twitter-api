@@ -80,7 +80,12 @@ class V11Client:
 
         headers = {
             'x-guest-token': guest_token,
-            'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA'
+            'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+            # Without a browser UA httpx sends `python-httpx/*`, which
+            # Cloudflare challenges on datacenter IPs.
+            'User-Agent': self.base._user_agent,
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': f'https://{DOMAIN}/',
         }
 
         if self.base._get_csrf_token():
