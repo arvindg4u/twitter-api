@@ -235,6 +235,53 @@ async def diag_login() -> dict:
         steps["flow_synthct0"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
     finally:
         client.http.cookies.clear()
+    # G) header combos with synthetic ct0: csrf without auth-type, and
+    # auth-type without csrf (raw curl, full control)
+    try:
+        import httpx
+        import secrets as _secrets
+        from curl_transport import CurlCffiTransport
+
+        ct0 = _secrets.token_hex(80)
+        base_h = {
+            "User-Agent": client._user_agent,
+            "Accept": "*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/json",
+            "Origin": "https://x.com",
+            "Referer": "https://x.com/",
+            "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+            "x-guest-token": token,
+            "x-twitter-active-user": "yes",
+            "x-twitter-client-language": "en",
+            "Cookie": f"ct0={ct0}; guest_id=v1%3A123; gt=123",
+        }
+        body = {
+            "flow_name": "login",
+            "input_flow_data": {
+                "flow_context": {
+                    "debug_overrides": {},
+                    "start_location": {"location": "splash_screen"},
+                }
+            },
+        }
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
+        ) as fresh4:
+            h1 = dict(base_h, **{"x-csrf-token": ct0})
+            r1 = await fresh4.post(
+                "https://api.x.com/1.1/onboarding/task.json",
+                headers=h1, json=body, timeout=60,
+            )
+            steps["exp_csrf_noauthtype"] = f"status={r1.status_code} {r1.text[:120]}"
+            h2 = dict(base_h, **{"x-twitter-auth-type": "OAuth2Session"})
+            r2 = await fresh4.post(
+                "https://api.x.com/1.1/onboarding/task.json",
+                headers=h2, json=body, timeout=60,
+            )
+            steps["exp_authtype_nocsrf"] = f"status={r2.status_code} {r2.text[:120]}"
+    except Exception as e:
+        steps["exp_g"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     # E) browser-shaped first call: flow_name in BODY, no query, no subtask_inputs
     try:
         import httpx
