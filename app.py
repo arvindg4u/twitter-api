@@ -828,10 +828,14 @@ async def get_tweet(tweet_id: str):
 async def trends(
     category: Literal["trending", "for-you", "news", "sports", "entertainment"] = "trending",
     count: int = Query(20, ge=1, le=50),
+    woeid: int = Query(1, description="Yahoo WOEID, 1 = worldwide"),
 ):
-    await ensure_login()
-    items = await client.get_trends(category, count=count)
-    return [{"name": tr.name, "tweet_count": tr.tweet_count} for tr in items]
+    await ensure_guest()
+    items = await guest.get_trends(woeid)
+    return [
+        {"name": t.get("name"), "tweet_count": t.get("tweet_volume")}
+        for t in items[:count]
+    ]
 
 
 @app.post("/tweet")

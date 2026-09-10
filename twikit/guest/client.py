@@ -481,3 +481,25 @@ class GuestClient:
             partial(self.search_tweet, query, product, count, previous_cursor),
             previous_cursor
         )
+
+    async def get_trends(self, woeid: int = 1) -> list[dict]:
+        """
+        Retrieves trending topics as a guest via v1.1 trends/place
+        (no login required).
+
+        Parameters
+        ----------
+        woeid : :class:`int`, default=1
+            Yahoo Where On Earth ID (1 = worldwide).
+
+        Returns
+        -------
+        list[:class:`dict`]
+            Raw trend dicts with name/query/tweet_volume keys.
+        """
+        response, _ = await self.v11.place_trends(woeid)
+        places = response if isinstance(response, list) else [response]
+        trends: list[dict] = []
+        for place in places:
+            trends.extend(place.get('trends', []))
+        return trends
