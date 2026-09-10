@@ -201,26 +201,56 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
 
             # Step 1: username / phone / email (X wants it without '@').
             await user_input.fill(username.lstrip("@"))
+            await page.wait_for_timeout(2500)
             # NB: never click "Continue with phone" — that opens signup.
-            if not await _click_button(page, ["Next"]):
-                # jf form: submit button may follow the input; press Enter.
+            # The jf form reveals its submit button after typing; re-scan.
+            submitted = False
+            try:
+                btns = await page.locator(
+                    "button:visible, div[role=button]:visible"
+                ).evaluate_all(
+                    "els => els.map(e => (e.innerText || e.getAttribute('aria-label') || '').trim()).filter(t => t)"
+                )
+            except Exception:
+                btns = []
+            for want in ("Next", "Continue", "Log in"):
+                if any(want.lower() in (b or "").lower() for b in btns):
+                    if await _click_button(page, [want]):
+                        submitted = True
+                        break
+            if not submitted:
                 try:
-                    await user_input.press("Enter")
+                    await user_input.press("Tab")
+                    await page.keyboard.press("Enter")
+                    submitted = True
                 except Exception:
-                    raise RuntimeError("username-step: Next button not found")
+                    try:
+                        await user_input.press("Enter")
+                        submitted = True
+                    except Exception:
+                        pass
+            if not submitted:
+                raise RuntimeError(
+                    "username-step: no submit control. buttons=" + str(btns)[:400]
+                )
             await page.wait_for_timeout(5000)
-            # Guard: if we landed on signup, go back to the login form.
+            # Guard: if we landed on signup, the submit went to the wrong
+            # form — reload the login page and retry once via Tab+Enter.
             try:
                 if "/signup" in page.url:
                     await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
-                    await page.wait_for_timeout(5000)
-                    user_input = page.locator(
-                        "#jf-input-username_or_email"
-                    ).first
+                    await page.wait_for_timeout(8000)
+                    user_input = page.locator("#jf-input-username_or_email").first
                     await user_input.wait_for(state="visible", timeout=25000)
                     await user_input.fill(username.lstrip("@"))
-                    await user_input.press("Enter")
+                    await page.wait_for_timeout(2500)
+                    await user_input.press("Tab")
+                    await page.keyboard.press("Enter")
                     await page.wait_for_timeout(5000)
+                    if "/signup" in page.url:
+                        raise RuntimeError(
+                            "username submit keeps routing to signup; url=" + page.url
+                        )
             except RuntimeError:
                 raise
             except Exception:
