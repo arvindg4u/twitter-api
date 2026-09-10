@@ -373,15 +373,26 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
             else:
                 body = await _page_text(page)
                 low = body.lower()
+                try:
+                    vtext = await page.locator("body").evaluate(
+                        "b => b.innerText.slice(0, 800)"
+                    )
+                except Exception:
+                    vtext = ""
+                state = f"url={page.url} text={vtext[:500]!r}"
                 if "captcha" in low or "arkose" in low or "funcaptcha" in low:
-                    raise RuntimeError("blocked by CAPTCHA challenge")
+                    raise RuntimeError("blocked by CAPTCHA challenge. " + state)
                 if "check your inbox" in low or "enter the code" in low or "verification code" in low:
-                    raise RuntimeError("blocked: X emailed a verification code (inbox access needed)")
+                    raise RuntimeError(
+                        "blocked: X emailed a verification code (inbox access needed). " + state
+                    )
                 if "suspended" in low or "locked" in low:
-                    raise RuntimeError("account suspended or locked")
+                    raise RuntimeError("account suspended or locked. " + state)
                 if "wrong" in low and "password" in low:
-                    raise RuntimeError("wrong password rejected by X")
-                raise RuntimeError("login did not complete; no auth_token cookie. url=" + page.url)
+                    raise RuntimeError("wrong password rejected by X. " + state)
+                if "could not log you in" in low or "try again" in low or "something went wrong" in low:
+                    raise RuntimeError("X rejected the login attempt. " + state)
+                raise RuntimeError("login did not complete; no auth_token cookie. " + state)
 
             return authed
         finally:
