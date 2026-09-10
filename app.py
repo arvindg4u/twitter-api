@@ -500,20 +500,21 @@ async def diag_login() -> dict:
         async with httpx.AsyncClient(
             transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
         ) as ms:
+            mh = {
+                "User-Agent": client._user_agent,
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Content-Type": "application/json",
+                "Origin": "https://x.com",
+                "Referer": "https://x.com/",
+                "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                "x-guest-token": token,
+                "x-twitter-active-user": "yes",
+                "x-twitter-client-language": "en",
+            }
             rm = await ms.post(
                 "https://api.x.com/1.1/onboarding/task.json",
-                headers={
-                    "User-Agent": client._user_agent,
-                    "Accept": "*/*",
-                    "Accept-Language": "en-US,en;q=0.9",
-                    "Content-Type": "application/json",
-                    "Origin": "https://x.com",
-                    "Referer": "https://x.com/",
-                    "authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
-                    "x-guest-token": token,
-                    "x-twitter-active-user": "yes",
-                    "x-twitter-client-language": "en",
-                },
+                headers=mh,
                 json={
                     "flow_name": "login",
                     "input_flow_data": {
@@ -526,6 +527,13 @@ async def diag_login() -> dict:
                 timeout=60,
             )
             steps["flow_minimal"] = f"status={rm.status_code} {rm.text[:250]}"
+            # N) v1.1 trends/place with guest token (is v1.1 REST guest-OK?)
+            rn = await ms.get(
+                "https://api.x.com/1.1/trends/place.json?id=1",
+                headers=mh,
+                timeout=60,
+            )
+            steps["trends_guest"] = f"status={rn.status_code} {rn.text[:250]}"
     except Exception as e:
         steps["flow_minimal"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     # F) synthetic ct0: browsers self-generate a 160-hex ct0 cookie and echo
