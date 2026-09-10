@@ -1,3 +1,4 @@
 *.json
-/*.py
+cookies.json
 /node_modules
+__pycache__/
