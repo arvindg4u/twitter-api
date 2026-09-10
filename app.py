@@ -280,6 +280,12 @@ async def diag_login() -> dict:
                 headers=h2, json=body, timeout=60,
             )
             steps["exp_authtype_nocsrf"] = f"status={r2.status_code} {r2.text[:120]}"
+            # H) same request but on x.com/i/api host (what the browser uses)
+            r3 = await fresh4.post(
+                "https://x.com/i/api/1.1/onboarding/task.json",
+                headers=h1, json=body, timeout=60,
+            )
+            steps["exp_xhost"] = f"status={r3.status_code} {r3.text[:200]}"
     except Exception as e:
         steps["exp_g"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     # E) browser-shaped first call: flow_name in BODY, no query, no subtask_inputs
