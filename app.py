@@ -305,20 +305,40 @@ async def diag_login() -> dict:
             steps["exp_notid_nocookie"] = f"status={r.status_code} {r.text[:120]}"
     except Exception as e:
         steps["exp_notid_nocookie"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
-    # D) fresh client, tid + cookies + query (mimics twikit Flow exactly)
+    # D) capture EXACT bytes twikit Flow sends (no network), compare with exp C
     try:
+        import httpx as _httpx
+
+        cap: dict = {}
+
+        class CapTransport(_httpx.AsyncBaseTransport):
+            async def handle_async_request(self, request):
+                cap["url"] = str(request.url)
+                cap["headers"] = {
+                    k: v
+                    for k, v in request.headers.items()
+                    if "cookie" not in k.lower()
+                }
+                cap["body"] = (await request.aread()).decode()[:500]
+                return _httpx.Response(
+                    200, headers={}, content=b'{"flow_token":null}', request=request
+                )
+
         from twikit import Client as TwikitClient
 
-        c2 = TwikitClient(
-            "en-US",
-            transport=CurlCffiTransport("chrome", fresh_session_per_request=True),
-        )
-        t2 = await c2._get_guest_token()
-        flow2 = Flow(c2, t2)
+        c2 = TwikitClient("en-US", transport=CapTransport())
+        c2.client_transaction.home_page_response = True
+        import base64 as _b64
+
+        c2.client_transaction.key = _b64.b64encode(b"0" * 48).decode()
+        c2.client_transaction.animation_key = "abc123"
+        c2.client_transaction.DEFAULT_ROW_INDEX = 1
+        c2.client_transaction.DEFAULT_KEY_BYTES_INDICES = [1, 42, 16]
+        flow2 = Flow(c2, token)
         await flow2.execute_task(params={"flow_name": "login"}, data={})
-        steps["exp_freshflow"] = f"ok, task={flow2.task_id}"
+        steps["exp_capture"] = f"url={cap.get('url')} body={cap.get('body')}"
     except Exception as e:
-        steps["exp_freshflow"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+        steps["exp_capture"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
 
 
