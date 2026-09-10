@@ -71,6 +71,53 @@ async def _page_text(page) -> str:
         return ""
 
 
+async def debug_login_submit(user_agent: str, identifier: str) -> dict:
+    """Fill the login identifier and dump the live submit controls + forms
+    WITHOUT submitting (finds the right button)."""
+    from playwright.async_api import async_playwright
+
+    await _ensure_browser()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        try:
+            ctx = await browser.new_context(
+                user_agent=user_agent,
+                locale="en-US",
+                viewport={"width": 1280, "height": 800},
+            )
+            page = await ctx.new_page()
+            await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
+            out: dict = {"start_url": page.url}
+            for _ in range(20):
+                await page.wait_for_timeout(6000)
+                try:
+                    loc = page.locator("#jf-input-username_or_email").first
+                    await loc.wait_for(state="visible", timeout=3000)
+                    out["form_found"] = True
+                    break
+                except Exception:
+                    continue
+            else:
+                out["form_found"] = False
+                return out
+            await page.locator("#jf-input-username_or_email").first.fill(identifier)
+            await page.wait_for_timeout(3000)
+            forms = await page.locator("form:visible").evaluate_all(
+                "els => els.map(e => (e.action || '(no-action)') + '|' + (e.innerHTML.slice(0, 120)))"
+            )
+            out["forms"] = forms[:4]
+            btns = await page.locator(
+                "button:visible, div[role=button]:visible, input[type=submit]:visible"
+            ).evaluate_all(
+                "els => els.map(e => ((e.innerText || e.value || e.getAttribute('aria-label') || e.type || '') + '').trim()).filter(t => t)"
+            )
+            out["buttons"] = btns[:15]
+            out["url"] = page.url
+            return out
+        finally:
+            await browser.close()
+
+
 async def debug_login_page(user_agent: str) -> dict:
     """Load x.com/login headlessly and report what renders (for selector debugging)."""
     from playwright.async_api import async_playwright

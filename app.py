@@ -268,6 +268,21 @@ async def import_cookies(body: CookiesIn, x_api_key: str | None = Header(default
         return {"logged_in": True, "id": me.id, "name": me.name, "saved_to": saved}
 
 
+@app.get("/debug-login-submit")
+async def debug_login_submit_ep(identifier: str = "rvndkaswan@gmail.com") -> dict:
+    """Fill identifier and dump live submit controls without submitting."""
+    try:
+        from browser_login import debug_login_submit
+
+        return await asyncio.wait_for(
+            debug_login_submit(client._user_agent, identifier), timeout=400
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="debug timed out")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)[:300]}")
+
+
 @app.get("/debug-login-page")
 async def debug_login_page_ep() -> dict:
     """Report what headless Chromium sees on x.com/login (selector debugging)."""
