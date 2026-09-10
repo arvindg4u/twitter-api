@@ -129,10 +129,22 @@ async def prime_cookies() -> dict:
 
 
 async def ensure_login() -> None:
-    """Log in once per process lifetime; reuse session cookies after that."""
+    """Log in once per process lifetime; reuse session cookies after that.
+
+    NOTE: X retired password-based onboarding (LoginFlow) — it answers 131/
+    366 to every HTTP client. The working path is cookies: place a
+    browser-exported cookies.json at COOKIES_FILE (Render Secret File) and
+    login is bypassed via load_cookies.
+    """
+    import os as _os
+
     global _logged_in
     async with _login_lock:
         if _logged_in:
+            return
+        if COOKIES_FILE and _os.path.exists(COOKIES_FILE):
+            client.load_cookies(COOKIES_FILE)
+            _logged_in = True
             return
         if not all([USERNAME, EMAIL, PASSWORD]):
             raise HTTPException(
@@ -140,13 +152,23 @@ async def ensure_login() -> None:
                 detail="Missing env vars: set TWITTER_USERNAME, TWITTER_EMAIL, TWITTER_PASSWORD",
             )
         await prime_cookies()
-        await client.login(
-            auth_info_1=USERNAME,
-            auth_info_2=EMAIL,
-            password=PASSWORD,
-            totp_secret=TOTP_SECRET,
-            cookies_file=COOKIES_FILE,
-        )
+        try:
+            await client.login(
+                auth_info_1=USERNAME,
+                auth_info_2=EMAIL,
+                password=PASSWORD,
+                totp_secret=TOTP_SECRET,
+                cookies_file=COOKIES_FILE,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Password login failed (X retired LoginFlow for HTTP clients). "
+                    "Export cookies.json from a logged-in browser and mount it as "
+                    f"a Render Secret File at {COOKIES_FILE}. Cause: {type(e).__name__}: {e}"
+                ),
+            )
         _logged_in = True
 
 
@@ -811,9 +833,18 @@ async def search(
     product: Literal["Top", "Latest", "Media"] = "Latest",
     count: int = Query(20, ge=1, le=20),
 ):
-    await ensure_guest()
-    tweets = await guest.search_tweet(q, product, count=count)
-    return [tweet_to_dict(t) for t in tweets]
+    # Authed search when cookies are mounted (guest search is blocked by X).
+    if _logged_in:
+        tweets = await client.search_tweet(q, product, count=count)
+        return [tweet_to_dict(t) for t in tweets]
+    try:
+        await ensure_login()
+        tweets = await client.search_tweet(q, product, count=count)
+        return [tweet_to_dict(t) for t in tweets]
+    except HTTPException:
+        await ensure_guest()
+        tweets = await guest.search_tweet(q, product, count=count)
+        return [tweet_to_dict(t) for t in tweets]
 
 
 @app.get("/search-users")
