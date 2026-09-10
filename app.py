@@ -190,12 +190,21 @@ async def diag_login() -> dict:
     """Prime cookies (like ensure_login does) then attempt guest_activate only.
     Shows whether Cloudflare still blocks api.x.com from Render."""
     steps: dict = {}
+    from twikit.utils import Flow
+
     steps["prime"] = await prime_cookies()
     try:
         token = await client._get_guest_token()
         steps["guest_activate"] = f"ok, token_len={len(token)}"
     except Exception as e:
         steps["guest_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
+        return steps
+    try:
+        flow = Flow(client, token)
+        await flow.execute_task(params={"flow_name": "login"}, data={})
+        steps["flow_login"] = f"ok, task={flow.task_id}"
+    except Exception as e:
+        steps["flow_login"] = f"FAIL: {type(e).__name__}: {str(e)[:300]}"
     return steps
 
 
