@@ -350,14 +350,15 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
                 {
                     "variables": {
                         "rawQuery": "python",
-                        "count": 3,
+                        "count": 20,
                         "querySource": "typed_query",
-                        "product": "Latest",
+                        "product": "Top",
                     },
                     "features": _TF,
                     "fieldToggles": {"withArticleRichContentState": False},
                 }
             )
+            # flatten_params already JSON-encodes nested values
             surl = (
                 "https://x.com/i/api/graphql/KPSo2_UWdOMpPJwjhfT1Qg/SearchTimeline?"
                 + _up.urlencode(sparams)
