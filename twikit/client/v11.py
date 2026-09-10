@@ -82,10 +82,16 @@ class V11Client:
             'x-guest-token': guest_token,
             'Authorization': 'Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
             # Without a browser UA httpx sends `python-httpx/*`, which
-            # Cloudflare challenges on datacenter IPs.
+            # Cloudflare challenges on datacenter IPs. Origin + full
+            # browser header set also required (verified: identical request
+            # without Origin gets challenged, with Origin reaches X).
             'User-Agent': self.base._user_agent,
+            'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': f'https://{DOMAIN}',
             'Referer': f'https://{DOMAIN}/',
+            'x-twitter-active-user': 'yes',
+            'x-twitter-client-language': 'en',
         }
 
         if self.base._get_csrf_token():
