@@ -251,36 +251,30 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
             first_id = email or username.lstrip("@")
             await user_input.fill(first_id)
             await page.wait_for_timeout(2500)
-            # NB: never click "Continue with phone" — that opens signup.
-            # The jf form reveals its submit button after typing; re-scan.
+            # jf form's submit is a bare "Continue" button. Match it exactly:
+            # "Continue with phone/Google/Apple" are SSO/signup options.
             submitted = False
             try:
-                btns = await page.locator(
-                    "button:visible, div[role=button]:visible"
-                ).evaluate_all(
-                    "els => els.map(e => (e.innerText || e.getAttribute('aria-label') || '').trim()).filter(t => t)"
-                )
+                cont = page.locator("button:visible", has_text="Continue").filter(
+                    has_not_text="Continue with"
+                ).first
+                await cont.wait_for(state="visible", timeout=10000)
+                await cont.click(timeout=10000)
+                submitted = True
             except Exception:
-                btns = []
-            for want in ("Next", "Continue", "Log in"):
-                if any(want.lower() in (b or "").lower() for b in btns):
-                    if await _click_button(page, [want]):
-                        submitted = True
-                        break
+                pass
             if not submitted:
                 try:
-                    await user_input.press("Tab")
-                    await page.keyboard.press("Enter")
-                    submitted = True
+                    btns = await page.locator(
+                        "button:visible, div[role=button]:visible"
+                    ).evaluate_all(
+                        "els => els.map(e => (e.innerText || e.getAttribute('aria-label') || '').trim()).filter(t => t)"
+                    )
                 except Exception:
-                    try:
-                        await user_input.press("Enter")
-                        submitted = True
-                    except Exception:
-                        pass
-            if not submitted:
+                    btns = []
                 raise RuntimeError(
-                    "username-step: no submit control. buttons=" + str(btns)[:400]
+                    "username-step: exact Continue button missing. buttons="
+                    + str(btns)[:400]
                 )
             await page.wait_for_timeout(5000)
             # Guard: if we landed on signup, the submit went to the wrong
@@ -347,11 +341,19 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                         + str(await visible_inputs())[:600]
                     )
                 await pwd.fill(password)
-                if not await _click_button(page, ["Log in", "Continue", "Next"]):
-                    try:
-                        await pwd.press("Enter")
-                    except Exception:
-                        raise RuntimeError("password-step: Log in button not found")
+                await page.wait_for_timeout(2000)
+                try:
+                    cont2 = page.locator("button:visible", has_text="Continue").filter(
+                        has_not_text="Continue with"
+                    ).first
+                    await cont2.wait_for(state="visible", timeout=10000)
+                    await cont2.click(timeout=10000)
+                except Exception:
+                    if not await _click_button(page, ["Log in"]):
+                        try:
+                            await pwd.press("Enter")
+                        except Exception:
+                            raise RuntimeError("password-step: submit button not found")
 
             # Wait for login to complete (auth_token cookie or /home).
             authed: dict = {}
