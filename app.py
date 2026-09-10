@@ -380,6 +380,45 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             )
             ra = await s.get(url=aurl, headers=base_gql_h, timeout=60)
             steps["search_adaptive"] = f"status={ra.status_code} {ra.text[:300]}"
+            # L) capture EXACT twikit Flow request (transport fix now live)
+            import httpx as _hx2
+
+            cap2: dict = {}
+
+            class CapT2(_hx2.AsyncBaseTransport):
+                async def handle_async_request(self, request):
+                    cap2["url"] = str(request.url)
+                    cap2["headers"] = {
+                        k: v for k, v in request.headers.items()
+                        if "cookie" not in k.lower()
+                    }
+                    cap2["body"] = (await request.aread()).decode()[:800]
+                    return _hx2.Response(
+                        200, headers={},
+                        content=b'{"flow_token":"FT","subtasks":[]}',
+                        request=request,
+                    )
+
+            from twikit import Client as TwikitClient2
+
+            c3 = TwikitClient2("en-US", transport=CapT2())
+            f3 = Flow(c3, token)
+            _body = {
+                "input_flow_data": {
+                    "flow_context": {
+                        "debug_overrides": {},
+                        "start_location": {"location": "splash_screen"},
+                    }
+                },
+                "subtask_versions": {"a": 1},
+            }
+            try:
+                await f3.execute_task(params={"flow_name": "login"}, data=_body)
+            except Exception as e:
+                cap2["err"] = f"{type(e).__name__}"
+            import json as _j2
+
+            steps["flow_capture"] = _j2.dumps(cap2)[:1200]
     except Exception as e:
         steps["graphql"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
