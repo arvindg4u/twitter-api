@@ -13,11 +13,23 @@ import asyncio
 import os
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Header
+from fastapi import FastAPI, HTTPException, Query, Header, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from twikit import Client
 
 app = FastAPI(title="twitter-api", version="1.0.0")
+
+
+@app.exception_handler(Exception)
+async def all_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Convert unhandled errors (e.g. twikit login failures) to JSON instead of
+    Starlette's plain-text 'Internal Server Error' so the real cause is visible."""
+    if isinstance(exc, HTTPException):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return JSONResponse(
+        status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"}
+    )
 
 USERNAME = os.getenv("TWITTER_USERNAME")
 EMAIL = os.getenv("TWITTER_EMAIL")
@@ -83,6 +95,21 @@ class DMIn(BaseModel):
 @app.get("/health")
 def health() -> dict:
     return {"ok": True}
+
+
+@app.get("/debug")
+def debug() -> dict:
+    """Show which env vars are present (values never exposed) — helps diagnose 500s."""
+    return {
+        "env_present": {
+            "TWITTER_USERNAME": bool(USERNAME),
+            "TWITTER_EMAIL": bool(EMAIL),
+            "TWITTER_PASSWORD": bool(PASSWORD),
+            "TWITTER_TOTP_SECRET": bool(TOTP_SECRET),
+            "API_KEY": bool(API_KEY),
+        },
+        "logged_in": _logged_in,
+    }
 
 
 @app.get("/search")
