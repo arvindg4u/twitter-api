@@ -268,6 +268,56 @@ async def import_cookies(body: CookiesIn, x_api_key: str | None = Header(default
         return {"logged_in": True, "id": me.id, "name": me.name, "saved_to": saved}
 
 
+@app.post("/bootstrap-login")
+async def bootstrap_login(x_api_key: str | None = Header(default=None)) -> dict:
+    """Mint fresh auth cookies via headless Chromium using the TWITTER_*
+    env credentials, then verify with a live authed call. Needed because X
+    retired password login for plain HTTP clients. Protected when API_KEY
+    is set. Takes 1-3 minutes (browser install on first use)."""
+    check_api_key(x_api_key)
+    if not all([USERNAME, EMAIL, PASSWORD]):
+        raise HTTPException(
+            status_code=500,
+            detail="Missing env vars: TWITTER_USERNAME, TWITTER_EMAIL, TWITTER_PASSWORD",
+        )
+    global _logged_in
+    async with _login_lock:
+        _logged_in = False
+        try:
+            from browser_login import browser_bootstrap
+
+            cookies = await asyncio.wait_for(
+                browser_bootstrap(USERNAME, EMAIL, PASSWORD, client._user_agent),
+                timeout=600,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(status_code=504, detail="browser login timed out")
+        except RuntimeError as e:
+            raise HTTPException(status_code=422, detail=str(e)[:500])
+        except ImportError:
+            raise HTTPException(
+                status_code=500, detail="playwright not installed in this runtime"
+            )
+        client.set_cookies(
+            {k: v for k, v in cookies.items() if v}, clear_cookies=True
+        )
+        try:
+            me = await client.get_user_by_screen_name(USERNAME.lstrip("@"))
+        except Exception as e:
+            client.http.cookies.clear()
+            raise HTTPException(
+                status_code=401,
+                detail=f"browser cookies rejected by X: {type(e).__name__}: {str(e)[:200]}",
+            )
+        _logged_in = True
+        try:
+            client.save_cookies(COOKIES_FILE)
+            saved = COOKIES_FILE
+        except Exception:
+            saved = None
+        return {"logged_in": True, "id": me.id, "name": me.name, "saved_to": saved}
+
+
 @app.get("/debug")
 def debug() -> dict:
     """Show which env vars are present (values never exposed) — helps diagnose 500s."""
