@@ -158,24 +158,65 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
             )
             page = await ctx.new_page()
             await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=90000)
-            await page.wait_for_timeout(4000)
+
+            async def visible_inputs() -> list:
+                try:
+                    return await page.locator("input:visible").evaluate_all(
+                        "els => els.map(e => e.outerHTML.slice(0, 200))"
+                    )
+                except Exception:
+                    return []
+
+            async def authed() -> dict:
+                try:
+                    return {c["name"]: c["value"] for c in await ctx.cookies()}
+                except Exception:
+                    return {}
+
+            # Wait for the app to hydrate (Cloudflare managed challenge can
+            # hold the page for up to ~a minute on datacenter IPs).
+            user_input = None
+            for _ in range(20):
+                await page.wait_for_timeout(6000)
+                if "auth_token" in await authed():
+                    return await authed()
+                for sel in (
+                    "#jf-input-username_or_email",
+                    'input[autocomplete="username"], input[name="text"]',
+                ):
+                    try:
+                        loc = page.locator(sel).first
+                        await loc.wait_for(state="visible", timeout=3000)
+                        user_input = loc
+                        break
+                    except Exception:
+                        continue
+                if user_input is not None:
+                    break
+            if user_input is None:
+                raise RuntimeError(
+                    "username field never appeared. inputs="
+                    + str(await visible_inputs())[:600]
+                )
 
             # Step 1: username / phone / email.
-            user_input = page.locator(
-                'input[autocomplete="username"], input[name="text"]'
-            ).first
-            await user_input.wait_for(timeout=30000)
             await user_input.fill(username)
-            if not await _click_button(page, ["Next"]):
-                raise RuntimeError("username-step: Next button not found")
-            await page.wait_for_timeout(4000)
+            if not await _click_button(
+                page, ["Next", "Continue", "Continue with phone"]
+            ):
+                # jf form: submit button may follow the input; press Enter.
+                try:
+                    await user_input.press("Enter")
+                except Exception:
+                    raise RuntimeError("username-step: Next/Continue button not found")
+            await page.wait_for_timeout(5000)
 
             # Possible identifier-verification step ("enter email/phone").
             for _ in range(2):
+                if "auth_token" in await authed():
+                    break
                 body = await _page_text(page)
                 low = body.lower()
-                if "auth_token" in [c["name"] for c in await ctx.cookies()]:
-                    break
                 if any(
                     s in low
                     for s in [
@@ -184,34 +225,39 @@ async def browser_bootstrap(username: str, email: str, password: str, user_agent
                         "unusual login activity",
                     ]
                 ):
-                    ident = page.locator('input[name="text"]').first
+                    ident = page.locator(
+                        '#jf-input-username_or_email, input[name="text"]'
+                    ).first
                     try:
-                        await ident.wait_for(timeout=10000)
+                        await ident.wait_for(state="visible", timeout=10000)
                         await ident.fill(email)
-                        await _click_button(page, ["Next"])
-                        await page.wait_for_timeout(4000)
+                        if not await _click_button(page, ["Next", "Continue"]):
+                            await ident.press("Enter")
+                        await page.wait_for_timeout(5000)
                         continue
                     except Exception:
                         pass
                 break
 
             # Step 2: password (if we are not already in).
-            cookies = {c["name"]: c["value"] for c in await ctx.cookies()}
+            cookies = await authed()
             if "auth_token" not in cookies:
-                pwd = page.locator('input[name="password"], input[type="password"]').first
+                pwd = page.locator(
+                    '#jf-input-password, input[name="password"], input[type="password"]'
+                ).first
                 try:
-                    await pwd.wait_for(timeout=20000)
+                    await pwd.wait_for(state="visible", timeout=25000)
                 except Exception:
-                    body = await _page_text(page)
                     raise RuntimeError(
-                        "password field never appeared. page snapshot: "
-                        + body[body.lower().find("error") - 100 : body.lower().find("error") + 300]
-                        if "error" in body.lower()
-                        else body[:500]
+                        "password field never appeared. inputs="
+                        + str(await visible_inputs())[:600]
                     )
                 await pwd.fill(password)
-                if not await _click_button(page, ["Log in"]):
-                    raise RuntimeError("password-step: Log in button not found")
+                if not await _click_button(page, ["Log in", "Continue", "Next"]):
+                    try:
+                        await pwd.press("Enter")
+                    except Exception:
+                        raise RuntimeError("password-step: Log in button not found")
 
             # Wait for login to complete (auth_token cookie or /home).
             authed: dict = {}
