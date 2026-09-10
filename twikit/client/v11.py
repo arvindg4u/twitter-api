@@ -71,12 +71,20 @@ class V11Client:
         )
 
     async def onboarding_task(self, guest_token, token, subtask_inputs, data = None, **kwargs):
+        # Flow.execute_task passes params=/data= as kwargs, so `data` arrives
+        # inside kwargs — pull it out. Everything must go as ONE json body:
+        # httpx silently drops `json=` when `data=` is also present, which
+        # produced a malformed form-encoded request that got challenged.
+        params = kwargs.pop('params', None)
         if data is None:
-            data = {}
+            data = kwargs.pop('data', None) or {}
+        else:
+            kwargs.pop('data', None)
+        body = dict(data)
         if token is not None:
-            data['flow_token'] = token
+            body['flow_token'] = token
         if subtask_inputs is not None:
-            data['subtask_inputs'] = subtask_inputs
+            body['subtask_inputs'] = subtask_inputs
 
         headers = {
             'x-guest-token': guest_token,
@@ -100,9 +108,9 @@ class V11Client:
 
         return await self.base.post(
             Endpoint.ONBOARDING_TASK,
-            json=data,
+            json=body,
             headers=headers,
-            **kwargs
+            params=params,
         )
 
     async def sso_init(self, provider, guest_token):
