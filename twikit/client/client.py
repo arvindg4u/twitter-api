@@ -252,6 +252,12 @@ class Client:
 
     @proxy.setter
     def proxy(self, url: str) -> None:
+        # Do NOT overwrite mounts when url is None: Client.__init__ always
+        # assigns self.proxy (even None), which used to clobber a custom
+        # transport= passed via kwargs (e.g. curl_cffi TLS impersonation)
+        # with a stock AsyncHTTPTransport.
+        if url is None:
+            return
         self.http._mounts = {URLPattern('all://'): AsyncHTTPTransport(proxy=url)}
 
     def _get_csrf_token(self) -> str:
