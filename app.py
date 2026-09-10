@@ -179,10 +179,9 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
 
     steps: dict = {}
     try:
-        gt = await guest._guest_token if hasattr(guest, "_guest_token") else None
-        if not gt:
+        if not guest._guest_token:
             await ensure_guest()
-            gt = guest._guest_token
+        gt = guest._guest_token
         steps["guest_token"] = f"ok len={len(gt)} prefix={gt[:4]}"
     except Exception as e:
         steps["guest_token"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
