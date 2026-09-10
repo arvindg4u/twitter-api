@@ -366,6 +366,20 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             )
             rs = await s.get(url=surl, headers=base_gql_h, timeout=60)
             steps["search_raw"] = f"status={rs.status_code} {rs.text[:300]}"
+            # K) adaptive (URT/REST) search endpoint
+            aurl = (
+                "https://x.com/i/api/2/search/adaptive.json?"
+                + _up.urlencode(
+                    {
+                        "q": "python",
+                        "query_source": "typed_query",
+                        "count": 5,
+                        "tweet_search_mode": "live",
+                    }
+                )
+            )
+            ra = await s.get(url=aurl, headers=base_gql_h, timeout=60)
+            steps["search_adaptive"] = f"status={ra.status_code} {ra.text[:300]}"
     except Exception as e:
         steps["graphql"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     return steps
