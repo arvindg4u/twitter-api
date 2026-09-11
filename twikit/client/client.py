@@ -1643,7 +1643,9 @@ class Client:
                                 continue
                             replies.append(rpl)
                         if 'cursor' in reply.get('entryId'):
-                            sr_cursor = reply['item']['itemContent']['value']
+                            sr_cursor = ((reply.get('item') or {}).get('itemContent') or {}).get('value')
+                            if sr_cursor is None:
+                                sr_cursor = ((reply.get('content') or {}).get('itemContent') or {}).get('value')
                             show_replies = partial(
                                 self._show_more_replies,
                                 tweet_id,
