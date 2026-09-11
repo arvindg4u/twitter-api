@@ -1404,3 +1404,26 @@ async def send_dm(body: DMIn, x_api_key: str | None = Header(default=None)):
     await ensure_login()
     await client.send_dm(body.user_id, body.text)
     return {"sent": True, "to": body.user_id}
+
+
+@app.get("/dm/inbox")
+async def dm_inbox(x_api_key: str | None = Header(default=None)) -> dict:
+    """Read DM inbox state (verify sent messages, debug delivery)."""
+    check_api_key(x_api_key)
+    await ensure_login()
+    from twikit.client.v11 import Endpoint
+
+    data, _ = await client.get(Endpoint.DM_INBOX)
+    try:
+        convos = data.get("inbox_initial_state", {}).get("conversations", {})
+        msgs = data.get("inbox_initial_state", {}).get("messages", {})
+        first = next(iter(msgs.values()), {}) if msgs else {}
+        entries = first.get("message", {}) if isinstance(first, dict) else {}
+        return {
+            "n_conversations": len(convos),
+            "n_messages": len(msgs),
+            "latest_text": (entries.get("message_data") or {}).get("text", "")[:200],
+            "latest_time": (entries.get("created_at", ""))[:40],
+        }
+    except Exception as e:
+        return {"raw_keys": sorted(data.keys())[:10], "err": str(e)[:150]}
