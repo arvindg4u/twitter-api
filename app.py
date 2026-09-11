@@ -451,11 +451,25 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
         steps["raw_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
     # Brave site: search (DDG 202s Render IPs; Brave may work).
     try:
-        from web_search_fallback import brave_tweet_ids as _bt
+        import httpx as _hx3
 
-        steps["brave_ids"] = str(
-            await _bt("python", guest._user_agent, limit=5)
-        )[:200]
+        async with _hx3.AsyncClient(follow_redirects=True) as _bs:
+            _br = await _bs.get(
+                "https://search.brave.com/search?q=site%3Atwitter.com+python&source=web",
+                headers={"User-Agent": guest._user_agent},
+                timeout=60,
+            )
+            _bt = _br.text
+            import re as _re3
+
+            _ids = sorted(
+                set(_re3.findall(r"(?:x|twitter)\.com/[A-Za-z0-9_]+/status/(\d+)", _bt))
+            )
+            _title = _re3.search(r"<title>(.*?)</title>", _bt)
+            steps["brave_ids"] = (
+                f"status={_br.status_code} len={len(_bt)} "
+                f"title={(_title.group(1) if _title else '?')[:60]} ids={_ids[:5]}"
+            )
     except Exception as e:
         steps["brave_ids"] = f"FAIL: {type(e).__name__}: {str(e)[:150]}"
     # DDG site: search for X status URLs (keyword search via search engine).
