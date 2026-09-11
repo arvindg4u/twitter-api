@@ -334,18 +334,20 @@ async def get_following(screen_name: str, count: int = 10) -> list[dict]:
 
 @mcp.tool()
 async def get_tweet_replies(tweet_id: str, count: int = 10) -> list[dict]:
-    """Get replies to a tweet (conversation context). Returns tweet dicts."""
-    await api.ensure_guest()
-    t = await _with_retry("tweet", api.guest.get_tweet_by_id, tweet_id)
+    """Get replies to a tweet (conversation/thread context). Returns tweet dicts."""
+    async def _run():
+        t = await _with_retry("tweet", api.client.get_tweet_by_id, tweet_id)
 
-    async def _replies():
-        reps = t.replies or []
-        return [api.tweet_to_dict(r) for r in list(reps)[: min(max(count, 1), 40)]]
+        async def _replies():
+            reps = t.replies or []
+            return [api.tweet_to_dict(r) for r in list(reps)[: min(max(count, 1), 40)]]
 
-    try:
-        return await _with_retry("replies", _replies)
-    except Exception:
-        return []
+        try:
+            return await _with_retry("replies", _replies)
+        except Exception:
+            return []
+
+    return await _authed(_run)
 
 
 @mcp.tool()
