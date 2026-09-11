@@ -1116,7 +1116,18 @@ async def search(
                 return out
         except Exception:
             pass
-    # 2. Keyword search via Brave (keyless) -> tweet IDs -> guest fetch.
+    # 2. Local full-text index over tweets already fetched via this
+    # service (grows with usage; X blocks guest SearchTimeline).
+    try:
+        from local_index import note_query, search_index
+
+        note_query(q)
+        hits = search_index(q, limit=count)
+        if hits:
+            return hits
+    except Exception:
+        pass
+    # 3. Keyword search via Brave (keyless) -> tweet IDs -> guest fetch.
     try:
         from web_search_fallback import brave_tweet_ids
 
@@ -1132,6 +1143,12 @@ async def search(
                 except Exception:
                     continue
             if out:
+                try:
+                    from local_index import index_many
+
+                    index_many(out)
+                except Exception:
+                    pass
                 return out
     except Exception:
         pass
@@ -1230,14 +1247,63 @@ async def get_user_tweets(
     await ensure_guest()
     u = await guest.get_user_by_screen_name(screen_name)
     tweets = await u.get_tweets(tweet_type, count=count)
-    return [tweet_to_dict(t) for t in tweets]
+    out = [tweet_to_dict(t) for t in tweets]
+    try:
+        from local_index import index_many
+
+        index_many(out)
+    except Exception:
+        pass
+    return out
 
 
 @app.get("/tweet/{tweet_id}")
 async def get_tweet(tweet_id: str):
     await ensure_guest()
-    t = await guest.get_tweet_by_id(tweet_id)
-    return tweet_to_dict(t)
+    try:
+        t = await guest.get_tweet_by_id(tweet_id)
+        out = tweet_to_dict(t)
+    except Exception:
+        # FxTwitter fallback (public embed API, no auth).
+        import httpx as _hx
+
+        async with _hx.AsyncClient(follow_redirects=True) as _s:
+            _r = await _s.get(
+                f"https://api.fxtwitter.com/i/status/{tweet_id}",
+                headers={"User-Agent": guest._user_agent},
+                timeout=60,
+            )
+            _r.raise_for_status()
+            _j = _r.json().get("tweet", {})
+            _u = _j.get("author", {})
+            out = {
+                "id": str(_j.get("id", tweet_id)),
+                "text": _j.get("text", ""),
+                "user": {
+                    "id": str(_u.get("id", "")),
+                    "name": _u.get("name", ""),
+                    "screen_name": _u.get("screen_name", ""),
+                },
+                "created_at": _j.get("created_at", ""),
+                "favorite_count": _j.get("likes"),
+                "retweet_count": _j.get("retweets"),
+                "reply_count": _j.get("replies"),
+            }
+    try:
+        from local_index import index_tweet
+
+        index_tweet(out)
+    except Exception:
+        pass
+    return out
+
+
+@app.get("/search-index/stats")
+async def index_stats() -> dict:
+    """Local full-text index stats (powers no-auth keyword search)."""
+    from local_index import stats
+
+    return stats()
 
 
 @app.get("/trends")
