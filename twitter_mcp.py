@@ -421,37 +421,35 @@ async def quote_tweet(tweet_id: str, text: str = "") -> dict:
     return await _authed(_run)
 
 
+async def _fetch_bytes(url: str) -> tuple[bytes, str]:
+    import httpx
+
+    async with httpx.AsyncClient(follow_redirects=True) as s:
+        r = await s.get(url, timeout=120)
+        r.raise_for_status()
+        ct = r.headers.get("content-type", "").split(";")[0].strip()
+        if not ct.startswith("image/"):
+            # guess from URL when servers omit content-type
+            low = url.lower()
+            if low.endswith(".png"):
+                ct = "image/png"
+            elif low.endswith(".gif"):
+                ct = "image/gif"
+            elif low.endswith(".webp"):
+                ct = "image/webp"
+            else:
+                ct = "image/jpeg"
+        return r.content, ct
+
+
 @mcp.tool()
 async def upload_media(media_url: str) -> dict:
     """Upload an image from a URL for use in a tweet. Returns {media_id}."""
     async def _run():
-        import httpx
-        import tempfile
-        import os
-
-        async with httpx.AsyncClient(follow_redirects=True) as s:
-            r = await s.get(media_url, timeout=120)
-            r.raise_for_status()
-            suffix = ".jpg"
-            ct = r.headers.get("content-type", "")
-            if "png" in ct:
-                suffix = ".png"
-            elif "gif" in ct:
-                suffix = ".gif"
-            elif "webp" in ct:
-                suffix = ".webp"
-            with tempfile.NamedTemporaryFile(
-                suffix=suffix, delete=False
-            ) as f:
-                f.write(r.content)
-                path = f.name
-        try:
-            mid = await api.client.upload_media(path, 0)
-        finally:
-            try:
-                os.unlink(path)
-            except Exception:
-                pass
+        blob, media_type = await _fetch_bytes(media_url)
+        mid = await api.client.upload_media(
+            blob, wait_for_completion=True, media_type=media_type
+        )
         return {"media_id": mid}
 
     return await _authed(_run)
@@ -461,27 +459,14 @@ async def upload_media(media_url: str) -> dict:
 async def post_tweet_with_media(text: str, media_urls: list[str]) -> dict:
     """Post a tweet with 1-4 images (URLs). Returns {posted, id}."""
     async def _run():
-        import httpx
-        import tempfile
-        import os
-
         mids = []
         for url in media_urls[:4]:
-            async with httpx.AsyncClient(follow_redirects=True) as s:
-                r = await s.get(url, timeout=120)
-                r.raise_for_status()
-                with tempfile.NamedTemporaryFile(
-                    suffix=".jpg", delete=False
-                ) as f:
-                    f.write(r.content)
-                    path = f.name
-            try:
-                mids.append(await api.client.upload_media(path, len(mids)))
-            finally:
-                try:
-                    os.unlink(path)
-                except Exception:
-                    pass
+            blob, media_type = await _fetch_bytes(url)
+            mids.append(
+                await api.client.upload_media(
+                    blob, wait_for_completion=True, media_type=media_type
+                )
+            )
         t = await api.client.create_tweet(text=text, media_ids=mids)
         return {"posted": True, "id": t.id}
 
