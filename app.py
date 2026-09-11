@@ -449,6 +449,15 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             steps["raw_activate"] = f"status={rr.status_code} {rr.text[:120]}"
     except Exception as e:
         steps["raw_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    # Brave site: search (DDG 202s Render IPs; Brave may work).
+    try:
+        from web_search_fallback import brave_tweet_ids as _bt
+
+        steps["brave_ids"] = str(
+            await _bt("python", guest._user_agent, limit=5)
+        )[:200]
+    except Exception as e:
+        steps["brave_ids"] = f"FAIL: {type(e).__name__}: {str(e)[:150]}"
     # DDG site: search for X status URLs (keyword search via search engine).
     try:
         import re as _re2
