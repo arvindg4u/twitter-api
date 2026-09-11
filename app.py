@@ -1428,6 +1428,18 @@ async def get_user_tweets(
     )
     if tweets:
         return tweets
+    # Authed fallback: Replies/Media/Likes timelines are guest-blocked by X.
+    if tweet_type in ("Replies", "Media", "Likes"):
+        try:
+            await ensure_login()
+            u = await client.get_user_by_screen_name(screen_name)
+            res = await u.get_tweets(tweet_type, count=count)
+            items = list(res) if not isinstance(res, tuple) else res[0]
+            out = _sort_tweets([tweet_to_dict(t) for t in items], order)
+            if out:
+                return out
+        except Exception:
+            pass
     # Fallback: legacy single-page path (keeps old tweet_type values working).
     await ensure_guest()
     u = await guest.get_user_by_screen_name(screen_name)
