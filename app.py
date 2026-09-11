@@ -1076,17 +1076,52 @@ async def search(
 
 @app.get("/search-users")
 async def search_users(q: str = Query(...), count: int = Query(20, ge=1, le=20)):
-    await ensure_login()
-    users = await client.search_user(q, count=count)
-    return [
-        {
-            "id": u.id,
-            "name": u.name,
-            "screen_name": u.screen_name,
-            "followers": u.followers_count,
-        }
-        for u in users
-    ]
+    # Authed user-search when logged in; otherwise resolve the query as an
+    # exact screen_name via guest lookup (X blocks guest user-search).
+    if _logged_in:
+        users = await client.search_user(q, count=count)
+        return [
+            {
+                "id": u.id,
+                "name": u.name,
+                "screen_name": u.screen_name,
+                "followers": u.followers_count,
+            }
+            for u in users
+        ]
+    try:
+        await ensure_login()
+        users = await client.search_user(q, count=count)
+        return [
+            {
+                "id": u.id,
+                "name": u.name,
+                "screen_name": u.screen_name,
+                "followers": u.followers_count,
+            }
+            for u in users
+        ]
+    except HTTPException:
+        pass
+    await ensure_guest()
+    candidates = [q.lstrip("@")]
+    # also try without common separators
+    if "_" in q:
+        candidates.append(q.replace("_", ""))
+    for handle in candidates[:3]:
+        try:
+            u = await guest.get_user_by_screen_name(handle)
+            return [
+                {
+                    "id": u.id,
+                    "name": u.name,
+                    "screen_name": u.screen_name,
+                    "followers": u.followers_count,
+                }
+            ]
+        except Exception:
+            continue
+    return []
 
 
 @app.get("/user/{screen_name}")
