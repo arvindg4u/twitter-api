@@ -1363,6 +1363,15 @@ async def like_tweet(tweet_id: str, x_api_key: str | None = Header(default=None)
     return {"liked": True, "id": tweet_id}
 
 
+@app.delete("/tweet/{tweet_id}/like")
+async def unlike_tweet(tweet_id: str, x_api_key: str | None = Header(default=None)):
+    check_api_key(x_api_key)
+    await ensure_login()
+    t = await client.get_tweet_by_id(tweet_id)
+    await t.unfavorite()
+    return {"unliked": True, "id": tweet_id}
+
+
 @app.post("/tweet/{tweet_id}/retweet")
 async def retweet(tweet_id: str, x_api_key: str | None = Header(default=None)):
     check_api_key(x_api_key)
@@ -1370,6 +1379,23 @@ async def retweet(tweet_id: str, x_api_key: str | None = Header(default=None)):
     t = await client.get_tweet_by_id(tweet_id)
     await t.retweet()
     return {"retweeted": True, "id": tweet_id}
+
+
+@app.delete("/tweet/{tweet_id}/retweet")
+async def unretweet(tweet_id: str, x_api_key: str | None = Header(default=None)):
+    check_api_key(x_api_key)
+    await ensure_login()
+    t = await client.get_tweet_by_id(tweet_id)
+    await t.delete_retweet()
+    return {"unretweeted": True, "id": tweet_id}
+
+
+@app.delete("/tweet/{tweet_id}")
+async def delete_tweet(tweet_id: str, x_api_key: str | None = Header(default=None)):
+    check_api_key(x_api_key)
+    await ensure_login()
+    await client.delete_tweet(tweet_id)
+    return {"deleted": True, "id": tweet_id}
 
 
 @app.post("/dm")
