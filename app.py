@@ -72,15 +72,21 @@ async def _auto_login_loop() -> None:
             return
 
 
+SHOW_TRACEBACK = os.getenv("SHOW_TRACEBACK", "") in ("1", "true", "yes")
+
+
 @app.exception_handler(Exception)
 async def all_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Convert unhandled errors (e.g. twikit login failures) to JSON instead of
     Starlette's plain-text 'Internal Server Error' so the real cause is visible."""
     if isinstance(exc, HTTPException):
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    return JSONResponse(
-        status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"}
-    )
+    detail = f"{type(exc).__name__}: {exc}"
+    if SHOW_TRACEBACK:
+        import traceback
+
+        detail += "\n" + "".join(traceback.format_exception(exc))[-2500:]
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 USERNAME = os.getenv("TWITTER_USERNAME")
 EMAIL = os.getenv("TWITTER_EMAIL")
