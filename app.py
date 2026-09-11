@@ -26,10 +26,55 @@ from contextlib import asynccontextmanager
 async def lifespan(app: FastAPI):
     if AUTO_LOGIN_RETRY and all([USERNAME, EMAIL, PASSWORD]):
         asyncio.create_task(_auto_login_loop())
+    _mount_mcp()
     yield
 
 
 app = FastAPI(title="twitter-api", version="1.0.0", lifespan=lifespan)
+
+
+def _mount_mcp() -> None:
+    """Mount the MCP server (Streamable HTTP, stateless) at /mcp.
+
+    Runs inside lifespan (after module load) so twitter_mcp -> app imports
+    never circularize. Stateless mode: no server-side sessions, survives
+    Render restarts and multi-instance setups. Hostname allowlist defeats
+    DNS-rebinding protection rejections (421) on the real hostname.
+    """
+    try:
+        from twitter_mcp import mcp
+    except Exception as e:
+        import logging
+
+        logging.getLogger("mcp").warning("MCP mount skipped: %s", e)
+        return
+    hosts = {"localhost", "127.0.0.1"}
+    for var in ("RENDER_EXTERNAL_HOSTNAME", "MCP_ALLOWED_HOSTS"):
+        for h in (os.getenv(var, "") or "").split(","):
+            h = h.strip().lower()
+            if h:
+                hosts.add(h)
+    # RENDER_EXTERNAL_URL looks like https://<host>; accept its hostname too.
+    ext = os.getenv("RENDER_EXTERNAL_URL", "") or ""
+    try:
+        from urllib.parse import urlparse
+
+        if urlparse(ext).hostname:
+            hosts.add(urlparse(ext).hostname.lower())
+    except Exception:
+        pass
+
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    mcp_app = mcp.streamable_http_app(
+        streamable_http_path="/mcp",
+        json_response=True,
+        stateless_http=True,
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=list(hosts),
+        ),
+    )
+    app.mount("/mcp", mcp_app)
 
 
 async def _auto_login_loop() -> None:
