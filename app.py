@@ -66,8 +66,10 @@ def _mount_mcp() -> None:
 
     from mcp.server.transport_security import TransportSecuritySettings
 
+    # NOTE: streamable path is "/" because the app is already mounted at
+    # /mcp (otherwise the route becomes /mcp/mcp).
     mcp_app = mcp.streamable_http_app(
-        streamable_http_path="/mcp",
+        streamable_http_path="/",
         json_response=True,
         stateless_http=True,
         transport_security=TransportSecuritySettings(
