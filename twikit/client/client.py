@@ -1664,7 +1664,7 @@ class Client:
 
         if entries[-1]['entryId'].startswith('cursor'):
             # if has more replies
-            reply_next_cursor = entries[-1]['content']['itemContent']['value']
+            reply_next_cursor = ((entries[-1].get('content') or {}).get('itemContent') or {}).get('value')
             _fetch_more_replies = partial(self._get_more_replies,
                                           tweet_id, reply_next_cursor)
         else:
