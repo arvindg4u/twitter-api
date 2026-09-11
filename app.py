@@ -1061,17 +1061,37 @@ async def search(
         return [tweet_to_dict(t) for t in tweets]
     except HTTPException:
         pass
+    # No-auth fallbacks (best effort):
+    # 1. @handle query -> that user's recent timeline via guest.
+    if q.strip().startswith("@"):
+        try:
+            await ensure_guest()
+            u = await guest.get_user_by_screen_name(q.strip().lstrip("@"))
+            tweets = await u.get_tweets("Tweets", count=count)
+            out = [tweet_to_dict(t) for t in tweets]
+            if out:
+                return out
+        except Exception:
+            pass
+    # 2. Headless logged-out page scrape (X login-walls it, usually []).
     try:
         from browser_login import browser_search
 
-        return await asyncio.wait_for(
+        out = await asyncio.wait_for(
             browser_search(q, client._user_agent, max_tweets=count), timeout=300
         )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"browser search failed: {type(e).__name__}: {str(e)[:200]}",
-        )
+        if out:
+            return out
+    except Exception:
+        pass
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "keyword search needs auth (X login-walls logged-out search). "
+            "Use q=@handle for user timelines, or import cookies via "
+            "POST /cookies / COOKIES_JSON for full search."
+        ),
+    )
 
 
 @app.get("/search-users")
