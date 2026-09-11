@@ -449,6 +449,26 @@ async def diag_guest(screen_name: str = "elonmusk") -> dict:
             steps["raw_activate"] = f"status={rr.status_code} {rr.text[:120]}"
     except Exception as e:
         steps["raw_activate"] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    # DDG site: search for X status URLs (keyword search via search engine).
+    try:
+        import re as _re2
+        from urllib.parse import quote as _q2
+
+        async with httpx.AsyncClient(
+            transport=CurlCffiTransport("chrome", fresh_session_per_request=True)
+        ) as ddgs:
+            rd = await ddgs.get(
+                "https://html.duckduckgo.com/html/?q="
+                + _q2("site:x.com python"),
+                headers={"User-Agent": guest._user_agent},
+                timeout=60,
+            )
+            urls = sorted(
+                set(_re2.findall(r"x\.com/[A-Za-z0-9_]+/status/(\d+)", rd.text))
+            )
+            steps["ddg_search"] = f"status={rd.status_code} ids={urls[:8]}"
+    except Exception as e:
+        steps["ddg_search"] = f"FAIL: {type(e).__name__}: {str(e)[:150]}"
     try:
         if not guest._guest_token:
             await ensure_guest()
