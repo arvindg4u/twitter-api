@@ -1116,18 +1116,7 @@ async def search(
                 return out
         except Exception:
             pass
-    # 2. Local full-text index over tweets already fetched via this
-    # service (grows with usage; X blocks guest SearchTimeline).
-    try:
-        from local_index import note_query, search_index
-
-        note_query(q)
-        hits = search_index(q, limit=count)
-        if hits:
-            return hits
-    except Exception:
-        pass
-    # 3. Keyword search via Brave (keyless) -> tweet IDs -> guest fetch.
+    # 2. Keyword search via Brave (keyless) -> tweet IDs -> guest fetch.
     try:
         from web_search_fallback import brave_tweet_ids
 
@@ -1143,12 +1132,6 @@ async def search(
                 except Exception:
                     continue
             if out:
-                try:
-                    from local_index import index_many
-
-                    index_many(out)
-                except Exception:
-                    pass
                 return out
     except Exception:
         pass
@@ -1247,14 +1230,7 @@ async def get_user_tweets(
     await ensure_guest()
     u = await guest.get_user_by_screen_name(screen_name)
     tweets = await u.get_tweets(tweet_type, count=count)
-    out = [tweet_to_dict(t) for t in tweets]
-    try:
-        from local_index import index_many
-
-        index_many(out)
-    except Exception:
-        pass
-    return out
+    return [tweet_to_dict(t) for t in tweets]
 
 
 @app.get("/tweet/{tweet_id}")
@@ -1289,21 +1265,7 @@ async def get_tweet(tweet_id: str):
                 "retweet_count": _j.get("retweets"),
                 "reply_count": _j.get("replies"),
             }
-    try:
-        from local_index import index_tweet
-
-        index_tweet(out)
-    except Exception:
-        pass
     return out
-
-
-@app.get("/search-index/stats")
-async def index_stats() -> dict:
-    """Local full-text index stats (powers no-auth keyword search)."""
-    from local_index import stats
-
-    return stats()
 
 
 @app.get("/trends")
