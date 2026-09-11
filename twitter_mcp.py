@@ -277,6 +277,288 @@ async def send_dm(user_id: str, text: str) -> dict:
     return await _authed(_run)
 
 
+def _user_dict(u) -> dict:
+    return {
+        "id": u.id, "name": u.name, "screen_name": u.screen_name,
+        "followers": u.followers_count,
+    }
+
+
+@mcp.tool()
+async def follow_user(screen_name: str) -> dict:
+    """Follow an X user. Returns {followed, screen_name}."""
+    async def _run():
+        u = await api.client.get_user_by_screen_name(screen_name)
+        await u.follow()
+        return {"followed": True, "screen_name": u.screen_name}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def unfollow_user(screen_name: str) -> dict:
+    """Unfollow an X user. Returns {unfollowed, screen_name}."""
+    async def _run():
+        u = await api.client.get_user_by_screen_name(screen_name)
+        await u.unfollow()
+        return {"unfollowed": True, "screen_name": u.screen_name}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_followers(screen_name: str, count: int = 10) -> list[dict]:
+    """Get followers of an X user. Returns [{id, name, screen_name, followers}]."""
+    async def _run():
+        u = await api.client.get_user_by_screen_name(screen_name)
+        res = await _with_retry(
+            "followers", u.get_followers, min(max(count, 1), 40)
+        )
+        return [_user_dict(x) for x in res]
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_following(screen_name: str, count: int = 10) -> list[dict]:
+    """Get accounts an X user follows. Returns [{id, name, screen_name, followers}]."""
+    async def _run():
+        u = await api.client.get_user_by_screen_name(screen_name)
+        res = await _with_retry(
+            "following", u.get_following, min(max(count, 1), 40)
+        )
+        return [_user_dict(x) for x in res]
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_tweet_replies(tweet_id: str, count: int = 10) -> list[dict]:
+    """Get replies to a tweet (conversation context). Returns tweet dicts."""
+    await api.ensure_guest()
+    t = await _with_retry("tweet", api.guest.get_tweet_by_id, tweet_id)
+
+    async def _replies():
+        reps = t.replies or []
+        return [api.tweet_to_dict(r) for r in list(reps)[: min(max(count, 1), 40)]]
+
+    try:
+        return await _with_retry("replies", _replies)
+    except Exception:
+        return []
+
+
+@mcp.tool()
+async def get_user_likes(screen_name: str, count: int = 10) -> list[dict]:
+    """Get tweets liked by an X user. Returns tweet dicts."""
+    async def _run():
+        u = await api.client.get_user_by_screen_name(screen_name)
+        tweets = await _with_retry(
+            "likes", u.get_tweets, "Likes", count=min(max(count, 1), 40)
+        )
+        return [api.tweet_to_dict(t) for t in tweets]
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_home_timeline(count: int = 10) -> list[dict]:
+    """Get the connected account's home timeline. Returns tweet dicts."""
+    async def _run():
+        tweets = await _with_retry(
+            "home-timeline",
+            api.client.get_latest_timeline,
+            count=min(max(count, 1), 40),
+        )
+        return [api.tweet_to_dict(t) for t in tweets]
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def bookmark_tweet(tweet_id: str) -> dict:
+    """Bookmark a tweet. Returns {bookmarked, id}."""
+    async def _run():
+        await api.client.bookmark_tweet(tweet_id)
+        return {"bookmarked": True, "id": tweet_id}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_bookmarks(count: int = 10) -> list[dict]:
+    """Get your bookmarked tweets. Returns tweet dicts."""
+    async def _run():
+        res = await _with_retry(
+            "bookmarks", api.client.get_bookmarks, min(max(count, 1), 40)
+        )
+        return [api.tweet_to_dict(t) for t in res]
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def reply_to_tweet(tweet_id: str, text: str) -> dict:
+    """Reply to a tweet. Returns {posted, id} of the reply."""
+    async def _run():
+        t = await api.client.create_tweet(text=text, reply_to=tweet_id)
+        return {"posted": True, "id": t.id}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def quote_tweet(tweet_id: str, text: str = "") -> dict:
+    """Quote-post a tweet (comment + embed). Returns {posted, id}."""
+    async def _run():
+        src = await api.client.get_tweet_by_id(tweet_id)
+        url = f"https://x.com/{src.user.screen_name}/status/{src.id}"
+        t = await api.client.create_tweet(text=f"{text} {url}".strip())
+        return {"posted": True, "id": t.id}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def upload_media(media_url: str) -> dict:
+    """Upload an image from a URL for use in a tweet. Returns {media_id}."""
+    async def _run():
+        import httpx
+        import tempfile
+        import os
+
+        async with httpx.AsyncClient(follow_redirects=True) as s:
+            r = await s.get(media_url, timeout=120)
+            r.raise_for_status()
+            suffix = ".jpg"
+            ct = r.headers.get("content-type", "")
+            if "png" in ct:
+                suffix = ".png"
+            elif "gif" in ct:
+                suffix = ".gif"
+            elif "webp" in ct:
+                suffix = ".webp"
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False
+            ) as f:
+                f.write(r.content)
+                path = f.name
+        try:
+            mid = await api.client.upload_media(path, 0)
+        finally:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+        return {"media_id": mid}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def post_tweet_with_media(text: str, media_urls: list[str]) -> dict:
+    """Post a tweet with 1-4 images (URLs). Returns {posted, id}."""
+    async def _run():
+        import httpx
+        import tempfile
+        import os
+
+        mids = []
+        for url in media_urls[:4]:
+            async with httpx.AsyncClient(follow_redirects=True) as s:
+                r = await s.get(url, timeout=120)
+                r.raise_for_status()
+                with tempfile.NamedTemporaryFile(
+                    suffix=".jpg", delete=False
+                ) as f:
+                    f.write(r.content)
+                    path = f.name
+            try:
+                mids.append(await api.client.upload_media(path, len(mids)))
+            finally:
+                try:
+                    os.unlink(path)
+                except Exception:
+                    pass
+        t = await api.client.create_tweet(text=text, media_ids=mids)
+        return {"posted": True, "id": t.id}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_mentions(count: int = 10) -> list[dict]:
+    """Get mentions of the connected account. Returns [{id, text, user, created_at}]."""
+    async def _run():
+        res = await _with_retry(
+            "mentions", api.client.get_notifications, "Mentions",
+            min(max(count, 1), 40),
+        )
+        out = []
+        for n in res:
+            try:
+                out.append(
+                    {
+                        "id": getattr(n, "id", ""),
+                        "text": getattr(n, "text", "") or "",
+                        "user": {
+                            "screen_name": getattr(getattr(n, "user", None), "screen_name", "")
+                        },
+                        "created_at": str(getattr(n, "created_at", "")),
+                    }
+                )
+            except Exception:
+                continue
+        return out
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def get_notifications(count: int = 10) -> list[dict]:
+    """Get notifications for the connected account. Returns [{type, text, user}]."""
+    async def _run():
+        res = await _with_retry(
+            "notifications", api.client.get_notifications, "All",
+            min(max(count, 1), 40),
+        )
+        out = []
+        for n in res:
+            try:
+                out.append(
+                    {
+                        "type": type(n).__name__,
+                        "text": getattr(n, "text", "") or "",
+                        "user": {
+                            "screen_name": getattr(getattr(n, "user", None), "screen_name", "")
+                        },
+                    }
+                )
+            except Exception:
+                continue
+        return out
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def create_poll_tweet(
+    text: str, options: list[str], duration_minutes: int = 1440
+) -> dict:
+    """Post a tweet with a poll (2-4 options). Returns {posted, id}."""
+    async def _run():
+        opts = [o for o in options if o.strip()][:4]
+        if len(opts) < 2:
+            raise RuntimeError("poll needs 2-4 non-empty options")
+        uri = await api.client.create_poll(
+            opts, duration_minutes=min(max(duration_minutes, 5), 10080)
+        )
+        t = await api.client.create_tweet(text=text, poll_uri=uri)
+        return {"posted": True, "id": t.id}
+
+    return await _authed(_run)
+
+
 if __name__ == "__main__":
     import sys
 
