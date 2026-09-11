@@ -1,6 +1,35 @@
 > [!NOTE]
 > https://github.com/d60/twitter_login (under development)
 
+## MCP Server (use from any AI agent)
+
+This repo also serves a **production MCP server** (Streamable HTTP, stateless)
+at `/mcp` with 13 tools: `search_tweets`, `search_users`, `get_user`,
+`get_user_tweets`, `get_tweet`, `get_trends` (public) plus `post_tweet`,
+`like_tweet`, `unlike_tweet`, `retweet`, `unretweet`, `delete_tweet`,
+`send_dm` (need `api_key`).
+
+**Claude Code** (`mcp add`, Streamable HTTP):
+```bash
+claude mcp add --transport http twitter-api https://twitter-api-gjyc.onrender.com/mcp/
+```
+
+**Cursor / Claude Desktop** (`mcp.json`):
+```json
+{
+  "mcpServers": {
+    "twitter-api": {
+      "url": "https://twitter-api-gjyc.onrender.com/mcp/"
+    }
+  }
+}
+```
+
+**Local dev** (stdio): `python twitter_mcp.py` · **Inspector**: point it at the URL above.
+Write tools pass `api_key` (the service `API_KEY`). Full REST API also available
+(see `app.py`). Auth cookies: `POST /cookies`, `COOKIES_JSON` env, or
+`POST /bootstrap-login` (headless Chromium).
+
 <img src="https://i.imgur.com/iJe6rsZ.png"  width="500">
 
 
