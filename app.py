@@ -436,6 +436,8 @@ def debug() -> dict:
             "TWITTER_PASSWORD": bool(PASSWORD),
             "TWITTER_TOTP_SECRET": bool(TOTP_SECRET),
             "API_KEY": bool(API_KEY),
+            "COOKIES_JSON_len": len(COOKIES_JSON or ""),
+            "COOKIES_FILE": COOKIES_FILE,
         },
         "logged_in": _logged_in,
     }
