@@ -1406,24 +1406,24 @@ async def send_dm(body: DMIn, x_api_key: str | None = Header(default=None)):
     return {"sent": True, "to": body.user_id}
 
 
-@app.get("/dm/inbox")
-async def dm_inbox(x_api_key: str | None = Header(default=None)) -> dict:
-    """Read DM inbox state (verify sent messages, debug delivery)."""
+@app.get("/dm/conversation/{user_id}")
+async def dm_conversation(user_id: str, x_api_key: str | None = Header(default=None)) -> dict:
+    """Read DM conversation history with a user."""
     check_api_key(x_api_key)
     await ensure_login()
     from twikit.client.v11 import Endpoint
 
-    data, _ = await client.get(Endpoint.DM_INBOX)
+    data, _ = await client.get(
+        Endpoint.DM_CONVERSATION.format(f"{user_id}-{USERNAME}"),
+        params={"context": "FETCH_DM_CONVERSATION_HISTORY"},
+    )
     try:
-        convos = data.get("inbox_initial_state", {}).get("conversations", {})
-        msgs = data.get("inbox_initial_state", {}).get("messages", {})
-        first = next(iter(msgs.values()), {}) if msgs else {}
-        entries = first.get("message", {}) if isinstance(first, dict) else {}
-        return {
-            "n_conversations": len(convos),
-            "n_messages": len(msgs),
-            "latest_text": (entries.get("message_data") or {}).get("text", "")[:200],
-            "latest_time": (entries.get("created_at", ""))[:40],
-        }
+        entries = data.get("conversation_timeline", {}).get("entries", [])
+        out = []
+        for e in entries:
+            msg = ((e.get("message") or {}).get("message_data") or {})
+            if msg.get("text"):
+                out.append(msg["text"][:200])
+        return {"messages": out[:20]}
     except Exception as e:
-        return {"raw_keys": sorted(data.keys())[:10], "err": str(e)[:150]}
+        return {"err": str(e)[:200]}
