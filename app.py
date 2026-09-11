@@ -368,6 +368,24 @@ async def diag_people(q: str = "elon") -> dict:
     return out
 
 
+@app.get("/diag-usertweets")
+async def diag_usertweets(screen_name: str = "alokrajRSSB") -> dict:
+    """Compare Tweets vs Replies endpoint responses (guest) for debugging."""
+    await ensure_guest()
+    u = await guest.get_user_by_screen_name(screen_name)
+    out: dict = {"user_id": u.id}
+    for label, fn in (
+        ("tweets", guest.gql.user_tweets),
+        ("replies", guest.gql.user_tweets_and_replies),
+    ):
+        try:
+            resp, raw = await fn(u.id, 5, None)
+            out[label] = f"status={raw.status_code} len={len(raw.text)} head={raw.text[:150]}"
+        except Exception as e:
+            out[label] = f"FAIL: {type(e).__name__}: {str(e)[:200]}"
+    return out
+
+
 @app.get("/diag-tweetdetail")
 async def diag_tweetdetail(tweet_id: str = "20") -> dict:
     """Dump authed tweet_detail entry shapes + test get_tweet_by_id stepwise."""
