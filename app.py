@@ -1423,11 +1423,14 @@ async def get_user_tweets(
     ),
     pages: int = Query(3, ge=1, le=10, description="timeline pages to merge"),
 ):
-    tweets = await _guest_timeline(
-        screen_name, count, order, max_pages=pages, tweet_type=tweet_type
-    )
-    if tweets:
-        return tweets
+    try:
+        tweets = await _guest_timeline(
+            screen_name, count, order, max_pages=pages, tweet_type=tweet_type
+        )
+        if tweets:
+            return tweets
+    except Exception:
+        tweets = []
     # Authed fallback: Replies/Media/Likes timelines are guest-blocked by X.
     if tweet_type in ("Replies", "Media", "Likes"):
         try:
@@ -1440,6 +1443,8 @@ async def get_user_tweets(
                 return out
         except Exception:
             pass
+    if tweets:
+        return tweets
     # Fallback: legacy single-page path (keeps old tweet_type values working).
     await ensure_guest()
     u = await guest.get_user_by_screen_name(screen_name)
