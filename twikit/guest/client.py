@@ -266,7 +266,8 @@ class GuestClient:
         user_id: str,
         tweet_type: Literal['Tweets'] = 'Tweets',
         count: int = 40,
-    ) -> list[Tweet]:
+        cursor: str | None = None,
+    ) -> tuple[list[Tweet], str | None]:
         """
         Fetches tweets from a specific user's timeline.
 
@@ -312,16 +313,23 @@ class GuestClient:
         f = {
             'Tweets': self.gql.user_tweets,
         }[tweet_type]
-        response, _ = await f(user_id, count, None)
+        response, _ = await f(user_id, count, cursor)
         instructions_ = find_dict(response, 'instructions', True)
         if not instructions_:
-            return []
+            return [], None
         instructions = instructions_[0]
         items = find_entry_by_type(instructions, 'TimelineAddEntries')['entries']
         results = []
+        next_cursor = None
 
         for item in items:
             entry_id = item['entryId']
+            if entry_id.startswith('cursor-bottom'):
+                try:
+                    next_cursor = item['content']['value']
+                except (KeyError, TypeError):
+                    pass
+                continue
             if not entry_id.startswith(('tweet', 'profile-conversation', 'profile-grid')):
                 continue
             tweet = tweet_from_data(self, item)
@@ -329,7 +337,7 @@ class GuestClient:
                 continue
             results.append(tweet)
 
-        return results
+        return results, next_cursor
 
     async def get_tweet_by_id(self, tweet_id: str) -> Tweet:
         """

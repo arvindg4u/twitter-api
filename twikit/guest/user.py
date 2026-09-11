@@ -143,7 +143,12 @@ class User:
     def created_at_datetime(self) -> datetime:
         return timestamp_to_datetime(self.created_at)
 
-    async def get_tweets(self, tweet_type: Literal['Tweets'] = 'Tweets', count: int = 40) -> list[Tweet]:
+    async def get_tweets(
+        self,
+        tweet_type: Literal['Tweets'] = 'Tweets',
+        count: int = 40,
+        cursor: str | None = None,
+    ) -> tuple[list[Tweet], str | None]:
         """
         Retrieves the user's tweets.
 
@@ -170,7 +175,7 @@ class User:
         ...
         ...
         """
-        return await self._client.get_user_tweets(self.id, tweet_type, count)
+        return await self._client.get_user_tweets(self.id, tweet_type, count, cursor)
 
     async def get_highlights_tweets(self, count: int = 20, cursor: str | None = None) -> Result[Tweet]:
         """

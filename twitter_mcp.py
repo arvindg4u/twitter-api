@@ -150,16 +150,27 @@ async def get_user(screen_name: str) -> dict:
 
 
 @mcp.tool()
-async def get_user_tweets(screen_name: str, count: int = 10) -> list[dict]:
-    """Get recent tweets from an X user. Returns tweet dicts (see search_tweets)."""
-    await api.ensure_guest()
-    u = await _with_retry(
-        "get-user", api.guest.get_user_by_screen_name, screen_name
+async def get_user_tweets(
+    screen_name: str,
+    count: int = 10,
+    order: Literal["ranked", "chronological"] = "ranked",
+    pages: int = 3,
+) -> list[dict]:
+    """Get tweets from an X user. order=ranked (X default) or chronological
+    (oldest first, merges `pages` timeline pages). Returns tweet dicts."""
+    count = min(max(count, 1), 40)
+    if order != "chronological":
+        await api.ensure_guest()
+        u = await _with_retry(
+            "get-user", api.guest.get_user_by_screen_name, screen_name
+        )
+        tweets, _ = await _with_retry(
+            "get-tweets", u.get_tweets, "Tweets", count=count
+        )
+        return [api.tweet_to_dict(t) for t in tweets]
+    return await api._guest_timeline(
+        screen_name, count, "chronological", max_pages=min(max(pages, 1), 10)
     )
-    tweets = await _with_retry(
-        "get-tweets", u.get_tweets, "Tweets", count=min(max(count, 1), 40)
-    )
-    return [api.tweet_to_dict(t) for t in tweets]
 
 
 @mcp.tool()

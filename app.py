@@ -1227,7 +1227,7 @@ async def search(
         try:
             await ensure_guest()
             u = await guest.get_user_by_screen_name(q.strip().lstrip("@"))
-            tweets = await u.get_tweets("Tweets", count=count)
+            tweets, _ = await u.get_tweets("Tweets", count=count)
             out = [tweet_to_dict(t) for t in tweets]
             if out:
                 return out
@@ -1338,16 +1338,78 @@ async def get_user(screen_name: str):
     }
 
 
+def _tweet_ts(item: dict) -> float:
+    """Parse X's 'Thu Apr 28 00:56:58 +0000 2022' to epoch (0 on failure)."""
+    from datetime import datetime
+
+    try:
+        return datetime.strptime(
+            item.get("created_at", ""), "%a %b %d %H:%M:%S %z %Y"
+        ).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _sort_tweets(items: list[dict], order: str) -> list[dict]:
+    """X returns timelines engagement-ranked; sort oldest->newest on demand."""
+    if order != "chronological":
+        return items
+    return sorted(items, key=_tweet_ts)
+
+
+async def _guest_timeline(
+    screen_name: str,
+    count: int,
+    order: str,
+    max_pages: int = 5,
+) -> list[dict]:
+    """Fetch up to `max_pages` of a user's timeline and return tweet dicts.
+
+    Multiple pages matter for chronological order: page 1 is ranked, so new
+    tweets can hide behind viral ones. Returns [] when X yields nothing.
+    """
+    await ensure_guest()
+    u = await guest.get_user_by_screen_name(screen_name)
+    seen: set[str] = set()
+    out: list[dict] = []
+    cursor: str | None = None
+    per_page = min(max(count, 20), 40)
+    for _ in range(max(1, max_pages)):
+        tweets, cursor = await u.get_tweets("Tweets", count=per_page, cursor=cursor)
+        fresh = False
+        for t in tweets:
+            d = tweet_to_dict(t)
+            if d["id"] and d["id"] not in seen:
+                seen.add(d["id"])
+                out.append(d)
+                fresh = True
+        if not cursor or not fresh or len(out) >= count * 3:
+            break
+    if order == "chronological":
+        # newest `count`, ordered oldest first
+        ranked = sorted(out, key=_tweet_ts, reverse=True)[:count]
+        return _sort_tweets(ranked, order)
+    return out[:count]
+
+
 @app.get("/user/{screen_name}/tweets")
 async def get_user_tweets(
     screen_name: str,
     tweet_type: Literal["Tweets", "Replies", "Media", "Likes"] = "Tweets",
     count: int = Query(20, ge=1, le=40),
+    order: Literal["ranked", "chronological"] = Query(
+        "ranked", description="ranked = X default; chronological = oldest first"
+    ),
+    pages: int = Query(3, ge=1, le=10, description="timeline pages to merge"),
 ):
+    tweets = await _guest_timeline(screen_name, count, order, max_pages=pages)
+    if tweets:
+        return tweets
+    # Fallback: legacy single-page path (keeps old tweet_type values working).
     await ensure_guest()
     u = await guest.get_user_by_screen_name(screen_name)
-    tweets = await u.get_tweets(tweet_type, count=count)
-    return [tweet_to_dict(t) for t in tweets]
+    tweets, _ = await u.get_tweets(tweet_type, count=count)
+    return _sort_tweets([tweet_to_dict(t) for t in tweets], order)
 
 
 @app.get("/tweet/{tweet_id}")
