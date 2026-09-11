@@ -284,6 +284,29 @@ def health() -> dict:
     return {"ok": True}
 
 
+@app.get("/diag-people")
+async def diag_people(q: str = "elon") -> dict:
+    """Dump first People-search user_info keys (authed) for parser debugging."""
+    import json as _j
+
+    await ensure_login()
+    resp, _ = await client.gql.search_timeline(q, "People", 5, None)
+    from twikit.utils import find_dict as _fd
+
+    items = _fd(resp, "entries", find_one=True)[0]
+    out: dict = {"n_entries": len(items)}
+    for item in items:
+        if "itemContent" not in item.get("content", {}):
+            continue
+        info = _fd(item, "result", find_one=True)[0]
+        out["typename"] = info.get("__typename")
+        out["keys"] = sorted(info.keys())[:30]
+        core = info.get("core") or {}
+        out["core_keys"] = sorted(core.keys())[:10]
+        break
+    return out
+
+
 @app.post("/cookies")
 async def import_cookies(body: CookiesIn, x_api_key: str | None = Header(default=None)) -> dict:
     """Import browser cookies at runtime (no redeploy needed) and verify them
