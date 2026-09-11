@@ -1093,7 +1093,26 @@ async def search(
                 return out
         except Exception:
             pass
-    # 2. Headless logged-out page scrape (X login-walls it, usually []).
+    # 2. Keyword search via Brave (keyless) -> tweet IDs -> guest fetch.
+    try:
+        from web_search_fallback import brave_tweet_ids
+
+        ids = await asyncio.wait_for(
+            brave_tweet_ids(q, guest._user_agent), timeout=120
+        )
+        if ids:
+            await ensure_guest()
+            out = []
+            for tid in ids[:count]:
+                try:
+                    out.append(tweet_to_dict(await guest.get_tweet_by_id(tid)))
+                except Exception:
+                    continue
+            if out:
+                return out
+    except Exception:
+        pass
+    # 3. Headless logged-out page scrape (X login-walls it, usually []).
     try:
         from browser_login import browser_search
 
