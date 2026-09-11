@@ -27,7 +27,13 @@ async def lifespan(app: FastAPI):
     if AUTO_LOGIN_RETRY and all([USERNAME, EMAIL, PASSWORD]):
         asyncio.create_task(_auto_login_loop())
     _mount_mcp()
-    yield
+    try:
+        from twitter_mcp import mcp as _mcp
+
+        async with _mcp.session_manager.run():
+            yield
+    except Exception:
+        yield
 
 
 app = FastAPI(title="twitter-api", version="1.0.0", lifespan=lifespan)
