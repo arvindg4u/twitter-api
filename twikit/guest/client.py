@@ -312,7 +312,9 @@ class GuestClient:
         tweet_type = tweet_type.capitalize()
         f = {
             'Tweets': self.gql.user_tweets,
-        }[tweet_type]
+            'Replies': self.gql.user_tweets_and_replies,
+            'Media': self.gql.user_media,
+        }.get(tweet_type, self.gql.user_tweets)
         response, _ = await f(user_id, count, cursor)
         instructions_ = find_dict(response, 'instructions', True)
         if not instructions_:

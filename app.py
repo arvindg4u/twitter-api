@@ -318,6 +318,8 @@ def tweet_to_dict(t) -> dict:
         "favorite_count": t.favorite_count,
         "retweet_count": t.retweet_count,
         "reply_count": t.reply_count,
+        "in_reply_to": getattr(t, "in_reply_to", None),
+        "is_reply": bool(getattr(t, "in_reply_to", None)),
     }
 
 
@@ -1362,6 +1364,7 @@ async def _guest_timeline(
     count: int,
     order: str,
     max_pages: int = 5,
+    tweet_type: str = "Tweets",
 ) -> list[dict]:
     """Fetch up to `max_pages` of a user's timeline and return tweet dicts.
 
@@ -1375,7 +1378,7 @@ async def _guest_timeline(
     cursor: str | None = None
     per_page = min(max(count, 20), 40)
     for _ in range(max(1, max_pages)):
-        tweets, cursor = await u.get_tweets("Tweets", count=per_page, cursor=cursor)
+        tweets, cursor = await u.get_tweets(tweet_type, count=per_page, cursor=cursor)
         fresh = False
         for t in tweets:
             d = tweet_to_dict(t)
@@ -1402,7 +1405,9 @@ async def get_user_tweets(
     ),
     pages: int = Query(3, ge=1, le=10, description="timeline pages to merge"),
 ):
-    tweets = await _guest_timeline(screen_name, count, order, max_pages=pages)
+    tweets = await _guest_timeline(
+        screen_name, count, order, max_pages=pages, tweet_type=tweet_type
+    )
     if tweets:
         return tweets
     # Fallback: legacy single-page path (keeps old tweet_type values working).
