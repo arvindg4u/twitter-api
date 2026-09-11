@@ -313,6 +313,39 @@ async def diag_people(q: str = "elon") -> dict:
     return out
 
 
+@app.get("/diag-tweetdetail")
+async def diag_tweetdetail(tweet_id: str = "20") -> dict:
+    """Dump authed tweet_detail entry shapes + test get_tweet_by_id stepwise."""
+    await ensure_login()
+    resp, _ = await client.gql.tweet_detail(tweet_id, None)
+    from twikit.utils import find_dict as _fd
+
+    out: dict = {}
+    try:
+        entries = _fd(resp, "entries", find_one=True)[0]
+    except Exception as e:
+        return {"error": f"no entries: {type(e).__name__}: {str(resp)[:300]}"}
+    out["n_entries"] = len(entries)
+    shapes = []
+    for e in entries[:12]:
+        c = e.get("content", {})
+        shapes.append(
+            f"{e.get('entryId', '?')[:40]} content_keys={sorted(c.keys())[:8]}"
+        )
+    out["shapes"] = shapes
+    try:
+        t = await client.get_tweet_by_id(tweet_id)
+        out["parsed"] = f"ok id={t.id} replies={t.reply_count}"
+    except Exception as e:
+        import traceback as _tb
+
+        out["parsed"] = (
+            f"FAIL: {type(e).__name__}: {e}\n"
+            + "".join(_tb.format_exception(e))[-1500:]
+        )
+    return out
+
+
 @app.post("/cookies")
 async def import_cookies(body: CookiesIn, x_api_key: str | None = Header(default=None)) -> dict:
     """Import browser cookies at runtime (no redeploy needed) and verify them
