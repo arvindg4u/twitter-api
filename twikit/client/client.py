@@ -151,9 +151,11 @@ class Client:
                 self.set_cookies(cookies_backup, clear_cookies=True)
 
         import os as _os
-        # SKIP_TID=1: omit X-Client-Transaction-Id. Our derived animation_key
-        # is a fallback X rejects with bogus 404s; bare requests succeed.
-        if _os.getenv('SKIP_TID') not in ('1', 'true', 'yes'):
+        # SKIP_TID=1 omits X-Client-Transaction-Id, but ONLY for guest-mode
+        # calls (guest_activate/onboarding got bogus 404s with our fallback
+        # animation_key). Authed calls always carry tid — X requires it.
+        authed = 'auth_token' in self.get_cookies()
+        if authed or _os.getenv('SKIP_TID') not in ('1', 'true', 'yes'):
             tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
             headers['X-Client-Transaction-Id'] = tid
 
