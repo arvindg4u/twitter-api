@@ -488,57 +488,43 @@ async def post_tweet_with_media(text: str, media_urls: list[str]) -> dict:
     return await _authed(_run)
 
 
+def _notif_dict(n) -> dict:
+    u = getattr(n, "from_user", None)
+    t = getattr(n, "tweet", None)
+    return {
+        "id": getattr(n, "id", ""),
+        "message": getattr(n, "message", "") or "",
+        "from_user": {
+            "screen_name": getattr(u, "screen_name", "") or "",
+            "name": getattr(u, "name", "") or "",
+        },
+        "tweet_id": getattr(t, "id", "") or "",
+        "timestamp_ms": getattr(n, "timestamp_ms", 0),
+    }
+
+
 @mcp.tool()
 async def get_mentions(count: int = 10) -> list[dict]:
-    """Get mentions of the connected account. Returns [{id, text, user, created_at}]."""
+    """Get mentions of the connected account. Returns [{id, message, from_user, tweet_id}]."""
     async def _run():
         res = await _with_retry(
             "mentions", api.client.get_notifications, "Mentions",
             min(max(count, 1), 40),
         )
-        out = []
-        for n in res:
-            try:
-                out.append(
-                    {
-                        "id": getattr(n, "id", ""),
-                        "text": getattr(n, "text", "") or "",
-                        "user": {
-                            "screen_name": getattr(getattr(n, "user", None), "screen_name", "")
-                        },
-                        "created_at": str(getattr(n, "created_at", "")),
-                    }
-                )
-            except Exception:
-                continue
-        return out
+        return [_notif_dict(n) for n in res]
 
     return await _authed(_run)
 
 
 @mcp.tool()
 async def get_notifications(count: int = 10) -> list[dict]:
-    """Get notifications for the connected account. Returns [{type, text, user}]."""
+    """Get notifications for the connected account. Returns [{id, message, from_user, tweet_id}]."""
     async def _run():
         res = await _with_retry(
             "notifications", api.client.get_notifications, "All",
             min(max(count, 1), 40),
         )
-        out = []
-        for n in res:
-            try:
-                out.append(
-                    {
-                        "type": type(n).__name__,
-                        "text": getattr(n, "text", "") or "",
-                        "user": {
-                            "screen_name": getattr(getattr(n, "user", None), "screen_name", "")
-                        },
-                    }
-                )
-            except Exception:
-                continue
-        return out
+        return [_notif_dict(n) for n in res]
 
     return await _authed(_run)
 
