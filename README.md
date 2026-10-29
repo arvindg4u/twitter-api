@@ -29,6 +29,11 @@ claude mcp add --transport http twitter-api https://twitter-api-gjyc.onrender.co
 Full REST API also available (see `app.py`). Auth cookies: `POST /cookies`,
 `COOKIES_JSON` env, or `POST /bootstrap-login` (headless Chromium).
 
+**Trends response shape:** `GET /trends` and the `get_trends` MCP tool return
+`[{rank, name, tweet_count}]` in X's own order (`rank` 1 = top). `tweet_count`
+is `null`: X stopped reporting per-trend volume (the raw `tweet_volume` field
+comes back null from the API), so `rank` is what you order by.
+
 <img src="https://i.imgur.com/iJe6rsZ.png"  width="500">
 
 
