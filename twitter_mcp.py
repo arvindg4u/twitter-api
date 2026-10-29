@@ -205,11 +205,15 @@ async def get_tweet(tweet_id: str) -> dict:
 
 @mcp.tool()
 async def get_trends(woeid: int = 1, count: int = 10) -> list[dict]:
-    """Get X trending topics (worldwide by default, woeid=1). Returns [{name, tweet_count}]."""
+    """Get X trending topics (worldwide by default, woeid=1). Returns
+    [{rank, name, tweet_count}] in X's own order. tweet_count is null: X no
+    longer reports per-trend volume; use rank for ordering."""
     items = await _with_retry("trends", api.fetch_trends, woeid)
+    # tweet_volume is null upstream (X no longer populates it); `rank` is X's
+    # own ordering, 1 = top, so trends can still be ordered.
     return [
-        {"name": t.get("name"), "tweet_count": t.get("tweet_volume")}
-        for t in items[: min(max(count, 1), 50)]
+        {"rank": i + 1, "name": t.get("name"), "tweet_count": t.get("tweet_volume")}
+        for i, t in enumerate(items[: min(max(count, 1), 50)])
     ]
 
 

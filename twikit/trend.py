@@ -13,9 +13,12 @@ class Trend:
     name : :class:`str`
         The name of the trending topic.
     tweets_count : :class:`int`
-        The count of tweets associated with the trend.
+        The count of tweets associated with the trend. X stopped populating
+        this (it is `None`); see :attr:`.Trend.rank` for ordering.
     domain_context : :class:`str`
         The context or domain associated with the trend.
+    rank : :class:`int`
+        X's ranking for the trend (1 = top of the list).
     grouped_trends : :class:`list`[:class:`str`]
         A list of trend names grouped under the main trend.
     """
@@ -27,6 +30,11 @@ class Trend:
         self.name: str = data['name']
         self.tweets_count: int | None = metadata.get('metaDescription')
         self.domain_context: str = metadata.get('domainContext')
+        # X's own ranking for the trend list (1 = top). The v1.1 place
+        # endpoint does not provide this; it is only present on the guide
+        # endpoint.
+        rank = data.get('rank')
+        self.rank: int | None = int(rank) if rank is not None else None
         self.grouped_trends: list[str] = [
             trend['name'] for trend in data.get('groupedTrends', [])
         ]

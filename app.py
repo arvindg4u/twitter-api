@@ -1508,9 +1508,16 @@ async def trends(
     woeid: int = Query(1, description="Yahoo WOEID, 1 = worldwide"),
 ):
     items = await fetch_trends(woeid)
+    # X stopped populating tweet_volume (always null), so trend order cannot
+    # be derived from it. X does return its own ranking as the array order;
+    # expose it as a 1-based `rank` so callers can still order trends.
     return [
-        {"name": t.get("name"), "tweet_count": t.get("tweet_volume")}
-        for t in items[:count]
+        {
+            "rank": i + 1,
+            "name": t.get("name"),
+            "tweet_count": t.get("tweet_volume"),
+        }
+        for i, t in enumerate(items[:count])
     ]
 
 
