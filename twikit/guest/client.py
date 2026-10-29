@@ -105,22 +105,37 @@ class GuestClient:
     ) -> tuple[dict | Any, Response]:
         ':meta private:'
         headers = kwargs.pop('headers', {})
+        path = urlparse(url).path
 
-        if not self.client_transaction.home_page_response:
-            cookies_backup = dict(self.http.cookies).copy()
-            ct_headers = {
-                'Accept-Language': f'{self.language},{self.language.split("-")[0]};q=0.9',
-                'Cache-Control': 'no-cache',
-                'Referer': f'https://{DOMAIN}',
-                'User-Agent': self._user_agent
-            }
-            await self.client_transaction.init(self.http, ct_headers)
-            self.http.cookies = cookies_backup
+        # Only GraphQL needs the X-Client-Transaction-Id header. v1.1 REST
+        # endpoints authenticate with X-Guest-Token alone, and generating the
+        # tid fetches x.com on this client first, which primes the cookie jar
+        # in a way X's edge rejects for guest REST calls with
+        # 403 {"code":239,"message":"Bad guest token"} (verified against the
+        # deployed service: a bare cookieless request succeeds, the
+        # transaction-initialised one does not).
+        if path.startswith('/i/api/graphql'):
+            if not self.client_transaction.home_page_response:
+                cookies_backup = dict(self.http.cookies).copy()
+                ct_headers = {
+                    'Accept-Language': f'{self.language},{self.language.split("-")[0]};q=0.9',
+                    'Cache-Control': 'no-cache',
+                    'Referer': f'https://{DOMAIN}',
+                    'User-Agent': self._user_agent
+                }
+                await self.client_transaction.init(self.http, ct_headers)
+                self.http.cookies = cookies_backup
 
-        import os as _os
-        if _os.getenv('SKIP_TID') not in ('1', 'true', 'yes'):
-            tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
-            headers['X-Client-Transaction-Id'] = tid
+            import os as _os
+            if _os.getenv('SKIP_TID') not in ('1', 'true', 'yes'):
+                try:
+                    tid = self.client_transaction.generate_transaction_id(
+                        method=method, path=path)
+                    headers['X-Client-Transaction-Id'] = tid
+                except Exception:
+                    # A stale/unsolvable transaction-id must not block the
+                    # request; X accepts GraphQL without it for guests.
+                    pass
 
         response = await self.http.request(method, url, headers=headers, **kwargs)
 

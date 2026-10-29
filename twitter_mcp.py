@@ -206,8 +206,7 @@ async def get_tweet(tweet_id: str) -> dict:
 @mcp.tool()
 async def get_trends(woeid: int = 1, count: int = 10) -> list[dict]:
     """Get X trending topics (worldwide by default, woeid=1). Returns [{name, tweet_count}]."""
-    await api.ensure_guest()
-    items = await _with_retry("trends", api.guest.get_trends, woeid)
+    items = await _with_retry("trends", api.fetch_trends, woeid)
     return [
         {"name": t.get("name"), "tweet_count": t.get("tweet_volume")}
         for t in items[: min(max(count, 1), 50)]

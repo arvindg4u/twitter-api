@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, Query, Header, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from twikit import Client
+from twikit.errors import Forbidden
 from twikit.guest import GuestClient
 
 from contextlib import asynccontextmanager
@@ -208,14 +209,27 @@ async def raw_guest_activate() -> str:
         return r.json()["guest_token"]
 
 
-async def ensure_guest() -> None:
+async def ensure_guest(force: bool = False) -> None:
     """Activate guest session (no credentials) for read-only endpoints."""
     global _guest_ready
     async with _guest_lock:
-        if _guest_ready:
+        if _guest_ready and not force:
             return
         guest._guest_token = await raw_guest_activate()
         _guest_ready = True
+
+
+async def fetch_trends(woeid: int) -> list[dict]:
+    """Guest trends for a WOEID. X can reject a guest token mid-flight with
+    403 code 239 even when it was just minted, so re-mint once and retry."""
+    await ensure_guest()
+    try:
+        return await guest.get_trends(woeid)
+    except Forbidden as e:
+        if 'Bad guest token' not in str(e):
+            raise
+        await ensure_guest(force=True)
+        return await guest.get_trends(woeid)
 
 
 async def prime_cookies() -> dict:
@@ -1493,8 +1507,7 @@ async def trends(
     count: int = Query(20, ge=1, le=50),
     woeid: int = Query(1, description="Yahoo WOEID, 1 = worldwide"),
 ):
-    await ensure_guest()
-    items = await guest.get_trends(woeid)
+    items = await fetch_trends(woeid)
     return [
         {"name": t.get("name"), "tweet_count": t.get("tweet_volume")}
         for t in items[:count]
