@@ -48,6 +48,7 @@ retrying.
 | `Timeout`, `Connect`, `ReadError`, `ConnectionReset`, `SSL` | Transport transient | Retry with backoff |
 | `code 344` / `daily limit` | X daily tweet/message limit | Wait for reset; do not retry |
 | `code 279` | DM conversation does not exist / recipient does not accept DMs | Do not retry |
+| `code 476` / `not verified` | Sender is not verified to send message requests | Do not retry; verify the account |
 | `403` on a DM | Recipient privacy or account lacks DM permission | Do not retry |
 | `HTTP 400` from `upload.wikimedia.org` | Invalid Wikimedia thumbnail size (X not involved) | Use the original file URL or an allowed size |
 | `URL did not return an image` | Download succeeded but body was HTML/other | Fix the URL |
@@ -73,11 +74,11 @@ retrying.
 | `get_trends` | Stable | ✅ 1x | `tweet_count` is always `null` upstream; use `rank` |
 | `get_followers` | Stable | ✅ 1x | GraphQL 404 → v1.1 `followers/list.json`; `count` enforced |
 | `get_following` | Stable | ✅ 1x | Same fallback; `count` enforced |
-| `get_user_likes` | Stable | ✅ 1x | Empty result is valid when the user hides likes |
+| `get_user_likes` | Stable | ✅ 1x | Empty result is valid when the user hides likes (an empty list can render as an empty string) |
 | `get_home_timeline` | Stable | ✅ 1x | `count` enforced |
 | `get_bookmarks` | Stable | ✅ 1x | `count` enforced |
 | `get_mentions` | Stable | ✅ 1x | Empty list when there are no mentions |
-| `get_notifications` | Works | ✅ 1x | Parser tolerates missing fields/types; `from_user` may be empty for some notification kinds |
+| `get_notifications` | Works | ✅ 1x | Returns `{id, kind, message, from_user{id,screen_name,name}, tweet_id, timestamp_ms}`; `raw=true` returns X's unparsed objects. Recommendations (`kind=recommendation_icon`) carry a `from_user.id` but no inlined profile |
 
 ### Write tools
 
@@ -94,7 +95,7 @@ retrying.
 | `retweet` / `unretweet` | Stable | ✅ | Idempotent |
 | `follow_user` / `unfollow_user` | Stable | ✅ | Idempotent |
 | `bookmark_tweet` / `unbookmark_tweet` | Stable | ✅ | Idempotent |
-| `send_dm` | Permission-dependent | ❌ never auto-retry | Not idempotent; a timeout may mean the DM was sent |
+| `send_dm` | Account-dependent | ❌ never auto-retry | Not idempotent; a timeout may mean the DM was sent. Code 476 = sender not verified for message requests; 403 = recipient does not accept DMs; 344 = daily limit. The tool itself works |
 
 ---
 
@@ -122,6 +123,12 @@ retrying.
   `icon`, and `timestampMs` are optional, and some notification types have no
   resolvable actor.
 - The parser skips malformed entries instead of failing the whole feed.
+- Each item includes `kind` (X's icon id). A `recommendation_icon` item is a
+  recommendation, not an interaction: it has a `message` topic and ids in
+  `from_user.id` / `tweet_id`, but X does not inline the sender profile, so
+  `screen_name` and `name` are empty. That is a payload limitation, not a
+  parsing bug.
+- Use `get_notifications(raw=true)` to inspect X's unparsed objects.
 - Do not build a digest that **requires** `get_notifications`; prefer
   `get_mentions`, `search_tweets`, or `get_home_timeline` as primaries.
 
@@ -193,6 +200,7 @@ curl -s https://twitter-api-gjyc.onrender.com/health
 
 | Date | Deploy | Verified |
 |---|---|---|
+| 2026-11-08 | `c401690` | Full 30-tool sweep green; `get_notifications(raw=true)` inspected (recommendation notification: `kind=recommendation_icon`, topic `K2S`, ids present, no inlined profile); `send_dm` returns X's real code 476 |
 | 2026-11-08 | `c75a3a6` | `upload_media` with a 400-ing Wikimedia thumb URL and a `pbs.twimg.com` URL; `post_tweet_with_media` end-to-end (tweet deleted); `post_tweet` (tweet deleted); `search_tweets`; `get_notifications`; `get_followers` count=3; `get_bookmarks`; `unbookmark_tweet` (test bookmark removed); clear error text for a non-image URL and an invalid DM recipient |
 | 2026-11-08 | `3c26ab9` | `get_followers` v1.1 REST fallback (GraphQL 404); `count` enforcement on followers/following/user tweets/home timeline |
 

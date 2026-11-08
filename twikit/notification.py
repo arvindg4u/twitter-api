@@ -31,6 +31,10 @@ class Notification:
         self._client = client
         self.tweet = tweet
         self.from_user = from_user
+        # Keep the raw payload: some notification types (e.g. recommendations)
+        # reference user/tweet ids that aren't inlined in globalObjects, so
+        # consumers need the original template to expose them.
+        self.data: dict = data
 
         # X has changed the notification payload several times; newer/rarer
         # notification types omit `message`, `icon` or `timestampMs`. Treat

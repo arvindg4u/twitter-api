@@ -770,21 +770,42 @@ async def unbookmark_tweet(tweet_id: str) -> dict:
 def _notif_dict(n) -> dict:
     u = getattr(n, "from_user", None)
     t = getattr(n, "tweet", None)
+    data = getattr(n, "data", {}) or {}
+    actions = (data.get("template") or {}).get("aggregateUserActionsV1") or {}
+
+    from_users = actions.get("fromUsers") or []
+    from_user_id = ""
+    if from_users and isinstance(from_users[0], dict):
+        from_user_id = str((from_users[0].get("user") or {}).get("id") or "")
+
+    tweet_id = getattr(t, "id", "") or ""
+    if not tweet_id:
+        targets = actions.get("targetObjects") or []
+        if targets and isinstance(targets[0], dict):
+            tweet_id = str((targets[0].get("tweet") or {}).get("id") or "")
+
+    icon = data.get("icon") or {}
+    kind = icon.get("id", "") if isinstance(icon, dict) else ""
     return {
         "id": getattr(n, "id", ""),
+        # e.g. "recommendation_icon", "favorite_icon", "follow_icon".
+        # Recommendations have no inlined sender profile.
+        "kind": kind,
         "message": getattr(n, "message", "") or "",
         "from_user": {
+            "id": str(getattr(u, "id", "") or from_user_id),
             "screen_name": getattr(u, "screen_name", "") or "",
             "name": getattr(u, "name", "") or "",
         },
-        "tweet_id": getattr(t, "id", "") or "",
+        "tweet_id": str(tweet_id),
         "timestamp_ms": getattr(n, "timestamp_ms", 0),
     }
 
 
 @mcp.tool()
 async def get_mentions(count: int = 10) -> list[dict]:
-    """Get mentions of the connected account. Returns [{id, message, from_user, tweet_id}]."""
+    """Get mentions of the connected account. Returns
+    [{id, kind, message, from_user{id,screen_name,name}, tweet_id, timestamp_ms}]."""
     async def _run():
         res = await _with_retry(
             "mentions", api.client.get_notifications, "Mentions",
@@ -797,8 +818,10 @@ async def get_mentions(count: int = 10) -> list[dict]:
 
 @mcp.tool()
 async def get_notifications(count: int = 10, raw: bool = False) -> list[dict]:
-    """Get notifications for the connected account. Returns [{id, message, from_user, tweet_id}].
-    Set raw=true to return X's unparsed notification objects (debugging)."""
+    """Get notifications for the connected account. Returns
+    [{id, kind, message, from_user{id,screen_name,name}, tweet_id, timestamp_ms}].
+    `kind` is X's icon id (e.g. recommendation_icon); recommendations carry a
+    from_user.id but no inlined profile. Set raw=true for the unparsed objects."""
     cap = min(max(count, 1), 40)
     async def _run():
         if raw:
