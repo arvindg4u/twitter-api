@@ -203,6 +203,7 @@ curl -s https://twitter-api-gjyc.onrender.com/health
 
 | Date | Deploy | Verified |
 |---|---|---|
+| 2026-11-08 | `acb2d0f` | `follow_user` duplicate (sama) returns `already_following` instead of erroring; genuine follow + unfollow round-trip (paulg, state restored); duplicate unfollow returns `already_unfollowed`; DM code 349 mapped |
 | 2026-11-08 | `c401690` | Full 30-tool sweep green; `get_notifications(raw=true)` inspected (recommendation notification: `kind=recommendation_icon`, topic `K2S`, ids present, no inlined profile); `send_dm` returns X's real code 476 |
 | 2026-11-08 | `c75a3a6` | `upload_media` with a 400-ing Wikimedia thumb URL and a `pbs.twimg.com` URL; `post_tweet_with_media` end-to-end (tweet deleted); `post_tweet` (tweet deleted); `search_tweets`; `get_notifications`; `get_followers` count=3; `get_bookmarks`; `unbookmark_tweet` (test bookmark removed); clear error text for a non-image URL and an invalid DM recipient |
 | 2026-11-08 | `3c26ab9` | `get_followers` v1.1 REST fallback (GraphQL 404); `count` enforcement on followers/following/user tweets/home timeline |
