@@ -368,6 +368,12 @@ async def send_dm(user_id: str, text: str) -> dict:
                 raise ToolError(
                     "X rejected the DM: daily message limit reached (code 344)."
                 ) from e
+            if "476" in msg or "not verified" in low or "message request" in low:
+                raise ToolError(
+                    "X rejected the DM (code 476): this account is not verified "
+                    "to send message requests. The tool is working; the account "
+                    "needs DM/message-request verification."
+                ) from e
             if "403" in msg or "forbidden" in low or "not allowed" in low:
                 raise ToolError(
                     "X rejected the DM (403). The recipient may not accept DMs "
@@ -790,14 +796,29 @@ async def get_mentions(count: int = 10) -> list[dict]:
 
 
 @mcp.tool()
-async def get_notifications(count: int = 10) -> list[dict]:
-    """Get notifications for the connected account. Returns [{id, message, from_user, tweet_id}]."""
+async def get_notifications(count: int = 10, raw: bool = False) -> list[dict]:
+    """Get notifications for the connected account. Returns [{id, message, from_user, tweet_id}].
+    Set raw=true to return X's unparsed notification objects (debugging)."""
+    cap = min(max(count, 1), 40)
     async def _run():
+        if raw:
+            response, _ = await _with_retry(
+                "notifications-raw", api.client.v11.notifications_all, cap, None
+            )
+            if not isinstance(response, dict):
+                return [{"raw": str(response)[:2000]}]
+            notifs = (response.get("globalObjects") or {}).get("notifications") or {}
+            if isinstance(notifs, dict):
+                items = list(notifs.values())
+            elif isinstance(notifs, list):
+                items = notifs
+            else:
+                items = []
+            return [x for x in items[:cap] if isinstance(x, dict)]
         res = await _with_retry(
-            "notifications", api.client.get_notifications, "All",
-            min(max(count, 1), 40),
+            "notifications", api.client.get_notifications, "All", cap
         )
-        return [_notif_dict(n) for n in list(res)[: min(max(count, 1), 40)]]
+        return [_notif_dict(n) for n in list(res)[:cap]]
 
     return await _authed(_run)
 
