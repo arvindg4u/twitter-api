@@ -321,6 +321,41 @@ def _user_dict(u) -> dict:
     }
 
 
+def _rest_user(u: dict) -> dict:
+    """Map a v1.1 followers/friends list entry to the MCP user shape."""
+    return {
+        "id": str(u.get("id_str") or u.get("id") or ""),
+        "name": u.get("name", "") or "",
+        "screen_name": u.get("screen_name", "") or "",
+        "followers": u.get("followers_count", 0) or 0,
+    }
+
+
+async def _rest_follow(user_id: str, count: int, kind: str) -> list[dict]:
+    """Fetch followers/following from the v1.1 REST list endpoint.
+
+    X sometimes 404s the GraphQL Followers query ID. The legacy payload is
+    not GraphQL-shaped, so it is parsed here instead of via twikit's User
+    model (which expects nested entities).
+    """
+    cap = min(max(count, 1), 40)
+    endpoint = (
+        api.client.v11.followers_list
+        if kind == "followers"
+        else api.client.v11.friends_list
+    )
+    resp, _ = await _with_retry(
+        f"{kind}-rest",
+        endpoint,
+        user_id=user_id,
+        screen_name=None,
+        count=cap,
+        cursor=None,
+    )
+    users = (resp or {}).get("users") or []
+    return [_rest_user(x) for x in users[:cap]]
+
+
 @mcp.tool()
 async def follow_user(screen_name: str) -> dict:
     """Follow an X user. Returns {followed, screen_name}."""
@@ -353,13 +388,8 @@ async def get_followers(screen_name: str, count: int = 10) -> list[dict]:
             res = await _with_retry("followers", u.get_followers, cap)
         except Exception:
             # X periodically rotates (or 404s) the GraphQL Followers query ID
-            # while the v1.1 REST list keeps working. Fall back to it.
-            res = await _with_retry(
-                "followers-rest",
-                api.client.get_latest_followers,
-                user_id=u.id,
-                count=cap,
-            )
+            # while the v1.1 REST list keeps working.
+            return await _rest_follow(u.id, cap, "followers")
         # X ignores `count` on this endpoint and returns a full page.
         return [_user_dict(x) for x in list(res)[:cap]]
 
@@ -376,12 +406,7 @@ async def get_following(screen_name: str, count: int = 10) -> list[dict]:
             res = await _with_retry("following", u.get_following, cap)
         except Exception:
             # Same stale-GraphQL-query risk as followers; use v1.1 REST.
-            res = await _with_retry(
-                "following-rest",
-                api.client.get_latest_friends,
-                user_id=u.id,
-                count=cap,
-            )
+            return await _rest_follow(u.id, cap, "following")
         return [_user_dict(x) for x in list(res)[:cap]]
 
     return await _authed(_run)
