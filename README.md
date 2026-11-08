@@ -17,6 +17,8 @@ at `/mcp` with 30 tools:
   `post_tweet_with_media`
 
 Just call them — auth lives server-side.
+See [`docs/MCP_RELIABILITY.md`](docs/MCP_RELIABILITY.md) for retry guidance,
+known X-side limits, and which tools are safe to retry.
 
 **Claude Code** (`mcp add`, Streamable HTTP):
 ```bash
