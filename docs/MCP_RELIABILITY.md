@@ -49,6 +49,7 @@ retrying.
 | `code 344` / `daily limit` | X daily tweet/message limit | Wait for reset; do not retry |
 | `code 279` | DM conversation does not exist / recipient does not accept DMs | Do not retry |
 | `code 476` / `not verified` | Sender is not verified to send message requests | Do not retry; verify the account |
+| `code 349` | Recipient does not accept messages from you | Do not retry |
 | `403` on a DM | Recipient privacy or account lacks DM permission | Do not retry |
 | `HTTP 400` from `upload.wikimedia.org` | Invalid Wikimedia thumbnail size (X not involved) | Use the original file URL or an allowed size |
 | `URL did not return an image` | Download succeeded but body was HTML/other | Fix the URL |
@@ -93,9 +94,9 @@ retrying.
 | `delete_tweet` | Stable | ⚠️ | Deleting twice may return 404; treat 404 as success |
 | `like_tweet` / `unlike_tweet` | Stable | ✅ | Idempotent |
 | `retweet` / `unretweet` | Stable | ✅ | Idempotent |
-| `follow_user` / `unfollow_user` | Stable | ✅ | Idempotent |
+| `follow_user` / `unfollow_user` | Stable | ✅ | Idempotent: checks `friendships/show` first and returns `already_following` / `already_unfollowed` instead of failing on a duplicate |
 | `bookmark_tweet` / `unbookmark_tweet` | Stable | ✅ | Idempotent |
-| `send_dm` | Account-dependent | ❌ never auto-retry | Not idempotent; a timeout may mean the DM was sent. Code 476 = sender not verified for message requests; 403 = recipient does not accept DMs; 344 = daily limit. The tool itself works |
+| `send_dm` | Account-dependent | ❌ never auto-retry | Not idempotent; a timeout may mean the DM was sent. Code 476 = sender not verified for message requests; 349 = recipient does not accept messages from you; 403 = recipient/privacy; 344 = daily limit. The tool itself works |
 
 ---
 
@@ -153,8 +154,10 @@ retrying.
 
 ### Likes
 
-- A user who hides likes returns an empty list. That is a valid result, not a
-  failure.
+- X restricts the Likes timeline for non-owner accounts. `get_user_likes` often
+  returns an empty list (which the MCP layer renders as empty content) even for
+  accounts with clearly public activity. Treat it as **unreliable for
+  third-party accounts**, not as an error.
 
 ---
 

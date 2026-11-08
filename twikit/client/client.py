@@ -2446,6 +2446,16 @@ class Client:
         response, _ = await self.gql.create_bookmark_folder(name)
         return BookmarkFolder(self, response['data']['bookmark_collection_create'])
 
+    async def show_friendship(self, user_id: str) -> dict:
+        """Return the authenticated account's relationship to ``user_id``.
+
+        Response: ``{"source": {"following": bool, "following_requested": bool},
+        "target": {...}}``. Used to make follow/unfollow idempotent.
+        """
+        source_id = await self.user_id()
+        response, _ = await self.v11.show_friendship(source_id, user_id)
+        return (response or {}).get('relationship', {}) or {}
+
     async def follow_user(self, user_id: str) -> User:
         """
         Follows a user.

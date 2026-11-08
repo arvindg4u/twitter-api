@@ -374,6 +374,11 @@ async def send_dm(user_id: str, text: str) -> dict:
                     "to send message requests. The tool is working; the account "
                     "needs DM/message-request verification."
                 ) from e
+            if "349" in msg or "cannot send messages" in low:
+                raise ToolError(
+                    "X rejected the DM (code 349): this recipient does not accept "
+                    "messages from you."
+                ) from e
             if "403" in msg or "forbidden" in low or "not allowed" in low:
                 raise ToolError(
                     "X rejected the DM (403). The recipient may not accept DMs "
@@ -428,12 +433,56 @@ async def _rest_follow(user_id: str, count: int, kind: str) -> list[dict]:
     return [_rest_user(x) for x in users[:cap]]
 
 
+async def _get_relationship(user_id: str) -> dict:
+    try:
+        return await _with_retry(
+            "show-friendship", api.client.show_friendship, user_id
+        )
+    except Exception:
+        # Relationship endpoint unavailable: fall back to the write + re-check.
+        return {}
+
+
+def _rel_following(rel: dict) -> bool | None:
+    source = (rel or {}).get("source") or {}
+    if "following" in source or "following_requested" in source:
+        return bool(source.get("following") or source.get("following_requested"))
+    return None
+
+
+def _is_duplicate_follow(e: Exception) -> bool:
+    msg = f"{type(e).__name__}: {e}".lower()
+    return "160" in msg or "already" in msg or (
+        "following" in msg and "request" in msg
+    )
+
+
 @mcp.tool()
 async def follow_user(screen_name: str) -> dict:
-    """Follow an X user. Returns {followed, screen_name}."""
+    """Follow an X user (idempotent). Returns {followed, screen_name};
+    adds already_following=true when the account already followed them."""
     async def _run():
         u = await api.client.get_user_by_screen_name(screen_name)
-        await u.follow()
+        if _rel_following(await _get_relationship(u.id)) is True:
+            return {
+                "followed": True,
+                "already_following": True,
+                "screen_name": u.screen_name,
+            }
+        try:
+            await u.follow()
+        except Exception as e:
+            # Duplicate follow is a no-op, not a failure. Confirm via the
+            # relationship endpoint (or X's code 160) before surfacing an error.
+            if _rel_following(await _get_relationship(u.id)) is True or _is_duplicate_follow(e):
+                return {
+                    "followed": True,
+                    "already_following": True,
+                    "screen_name": u.screen_name,
+                }
+            raise ToolError(
+                f"follow_user failed: {type(e).__name__}: {str(e)[:300]}"
+            ) from e
         return {"followed": True, "screen_name": u.screen_name}
 
     return await _authed(_run)
@@ -441,10 +490,28 @@ async def follow_user(screen_name: str) -> dict:
 
 @mcp.tool()
 async def unfollow_user(screen_name: str) -> dict:
-    """Unfollow an X user. Returns {unfollowed, screen_name}."""
+    """Unfollow an X user (idempotent). Returns {unfollowed, screen_name};
+    adds already_unfollowed=true when the account was not following them."""
     async def _run():
         u = await api.client.get_user_by_screen_name(screen_name)
-        await u.unfollow()
+        if _rel_following(await _get_relationship(u.id)) is False:
+            return {
+                "unfollowed": True,
+                "already_unfollowed": True,
+                "screen_name": u.screen_name,
+            }
+        try:
+            await u.unfollow()
+        except Exception as e:
+            if _rel_following(await _get_relationship(u.id)) is False:
+                return {
+                    "unfollowed": True,
+                    "already_unfollowed": True,
+                    "screen_name": u.screen_name,
+                }
+            raise ToolError(
+                f"unfollow_user failed: {type(e).__name__}: {str(e)[:300]}"
+            ) from e
         return {"unfollowed": True, "screen_name": u.screen_name}
 
     return await _authed(_run)

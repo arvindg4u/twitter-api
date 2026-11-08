@@ -27,6 +27,7 @@ class Endpoint:
     GET_PLACE = f'https://api.{DOMAIN}/1.1/geo/id/{{}}.json'
     CREATE_FRIENDSHIPS = f'https://{DOMAIN}/i/api/1.1/friendships/create.json'
     DESTROY_FRIENDSHIPS = f'https://{DOMAIN}/i/api/1.1/friendships/destroy.json'
+    SHOW_FRIENDSHIP = f'https://{DOMAIN}/i/api/1.1/friendships/show.json'
     CREATE_BLOCKS = f'https://{DOMAIN}/i/api/1.1/blocks/create.json'
     DESTROY_BLOCKS = f'https://{DOMAIN}/i/api/1.1/blocks/destroy.json'
     CREATE_MUTES = f'https://{DOMAIN}/i/api/1.1/mutes/users/create.json'
@@ -286,6 +287,13 @@ class V11Client:
     async def get_place(self, id):
         return await self.base.get(
             Endpoint.GET_PLACE.format(id),
+            headers=self.base._base_headers
+        )
+
+    async def show_friendship(self, source_id, target_id):
+        return await self.base.get(
+            Endpoint.SHOW_FRIENDSHIP,
+            params={'source_id': source_id, 'target_id': target_id},
             headers=self.base._base_headers
         )
 
