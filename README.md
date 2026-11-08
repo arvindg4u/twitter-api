@@ -4,10 +4,19 @@
 ## MCP Server (use from any AI agent)
 
 This repo also serves a **production MCP server** (Streamable HTTP, stateless)
-at `/mcp` with 13 tools: `search_tweets`, `search_users`, `get_user`,
-`get_user_tweets`, `get_tweet`, `get_trends`, `post_tweet`,
-`like_tweet`, `unlike_tweet`, `retweet`, `unretweet`, `delete_tweet`,
-`send_dm` — just call them, auth lives server-side.
+at `/mcp` with 30 tools:
+
+- **Read:** `search_tweets`, `search_users`, `get_user`, `get_user_tweets`,
+  `get_tweet`, `get_tweet_replies`, `get_trends`, `get_followers`,
+  `get_following`, `get_user_likes`, `get_home_timeline`, `get_mentions`,
+  `get_notifications`, `get_bookmarks`
+- **Write:** `post_tweet`, `reply_to_tweet`, `quote_tweet`,
+  `create_poll_tweet`, `delete_tweet`, `like_tweet`, `unlike_tweet`,
+  `retweet`, `unretweet`, `follow_user`, `unfollow_user`, `send_dm`,
+  `bookmark_tweet`, `unbookmark_tweet`, `upload_media`,
+  `post_tweet_with_media`
+
+Just call them — auth lives server-side.
 
 **Claude Code** (`mcp add`, Streamable HTTP):
 ```bash

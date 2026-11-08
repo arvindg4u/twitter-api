@@ -3819,43 +3819,90 @@ class Client:
         }[type]
         response, _ = await f(count, cursor)
 
-        global_objects = response['globalObjects']
-        users = {
-            id: User(self, build_user_data(data))
-            for id, data in global_objects.get('users', {}).items()
-        }
-        tweets = {}
+        # X returns a mix of notification shapes and occasionally a non-JSON
+        # body. Parse defensively: a single unusual entry must not turn the
+        # whole tool into a hard failure.
+        if not isinstance(response, dict):
+            return Result([], None, None)
 
-        for id, tweet_data in global_objects.get('tweets', {}).items():
-            user_id = tweet_data['user_id_str']
-            user = users[user_id]
-            tweet = Tweet(self, build_tweet_data(tweet_data), user)
-            tweets[id] = tweet
+        global_objects = response.get('globalObjects') or {}
+        if not isinstance(global_objects, dict):
+            global_objects = {}
+
+        users = {}
+        users_raw = global_objects.get('users') or {}
+        if not isinstance(users_raw, dict):
+            users_raw = {}
+        for user_id, user_data in users_raw.items():
+            try:
+                users[str(user_id)] = User(self, build_user_data(user_data))
+            except Exception:
+                continue
+
+        tweets = {}
+        tweets_raw = global_objects.get('tweets') or {}
+        if not isinstance(tweets_raw, dict):
+            tweets_raw = {}
+        for tweet_id, tweet_data in tweets_raw.items():
+            try:
+                user_id = str(
+                    tweet_data.get('user_id_str')
+                    or tweet_data.get('user_id')
+                    or ''
+                )
+                user = users.get(user_id)
+                if user is None:
+                    # Tweet without an inlined author: skip, it cannot be
+                    # rendered by Notification anyway.
+                    continue
+                tweets[str(tweet_id)] = Tweet(
+                    self, build_tweet_data(tweet_data), user
+                )
+            except Exception:
+                continue
 
         notifications = []
 
-        for notification in global_objects.get('notifications', {}).values():
-            user_actions = notification['template']['aggregateUserActionsV1']
-            target_objects = user_actions['targetObjects']
-            if target_objects and 'tweet' in target_objects[0]:
-                tweet_id = target_objects[0]['tweet']['id']
-                tweet = tweets[tweet_id]
-            else:
-                tweet = None
+        notifications_obj = global_objects.get('notifications') or {}
+        if isinstance(notifications_obj, dict):
+            notification_iter = notifications_obj.values()
+        elif isinstance(notifications_obj, list):
+            notification_iter = notifications_obj
+        else:
+            notification_iter = ()
 
-            from_users  = user_actions['fromUsers']
-            if from_users and 'user' in from_users[0]:
-                user_id = from_users[0]['user']['id']
-                user = users[user_id]
-            else:
-                user = None
+        for notification in notification_iter:
+            try:
+                template = notification.get('template') or {}
+                user_actions = template.get('aggregateUserActionsV1') or {}
+                target_objects = user_actions.get('targetObjects') or []
 
-            notifications.append(Notification(self, notification, tweet, user))
+                if target_objects:
+                    tweet_ref = (target_objects[0] or {}).get('tweet') or {}
+                    tweet = tweets.get(str(tweet_ref.get('id') or ''))
+                else:
+                    tweet = None
 
-        entries = find_dict(response, 'entries', find_one=True)[0]
+                from_users = user_actions.get('fromUsers') or []
+                if from_users:
+                    user_ref = (from_users[0] or {}).get('user') or {}
+                    user = users.get(str(user_ref.get('id') or ''))
+                else:
+                    user = None
+
+                notifications.append(
+                    Notification(self, notification, tweet, user)
+                )
+            except Exception:
+                # Unknown/malformed notification type — skip it rather than
+                # aborting the entire feed.
+                continue
+
+        entries = find_dict(response, 'entries', find_one=True)
+        entries = entries[0] if entries else []
         cursor_bottom_entry = [
             i for i in entries
-            if i['entryId'].startswith('cursor-bottom')
+            if str(i.get('entryId', '')).startswith('cursor-bottom')
         ]
         if cursor_bottom_entry:
             next_cursor = find_dict(cursor_bottom_entry[0], 'value', find_one=True)[0]

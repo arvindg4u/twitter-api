@@ -32,10 +32,18 @@ class Notification:
         self.tweet = tweet
         self.from_user = from_user
 
-        self.id: str = data['id']
-        self.timestamp_ms: int = int(data['timestampMs'])
-        self.icon: dict = data['icon']
-        self.message: str = data['message']['text']
+        # X has changed the notification payload several times; newer/rarer
+        # notification types omit `message`, `icon` or `timestampMs`. Treat
+        # every field as optional so one odd entry can't abort the whole
+        # `get_notifications` call.
+        self.id: str = str(data.get('id', ''))
+        self.timestamp_ms: int = int(data.get('timestampMs') or 0)
+        self.icon: dict = data.get('icon') or {}
+        message = data.get('message') or {}
+        if isinstance(message, dict):
+            self.message: str = message.get('text', '') or ''
+        else:
+            self.message = str(message)
 
     def __eq__(self, __value: object) -> bool:
         return isinstance(__value, Notification) and self.id == __value.id

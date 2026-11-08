@@ -138,10 +138,20 @@ async def search_users(q: str, count: int = 10) -> list[dict]:
 @mcp.tool()
 async def get_user(screen_name: str) -> dict:
     """Get an X user profile. Returns id, name, screen_name, followers, following, tweets_count, description."""
-    await api.ensure_guest()
-    u = await _with_retry(
-        "get-user", api.guest.get_user_by_screen_name, screen_name
-    )
+    try:
+        await api.ensure_guest()
+        u = await _with_retry(
+            "get-user", api.guest.get_user_by_screen_name, screen_name
+        )
+    except Exception as guest_error:
+        # Guest sessions are occasionally rejected mid-flight; the authed
+        # client is steadier. Keep the original error if both fail.
+        try:
+            u = await _authed(
+                lambda: api.client.get_user_by_screen_name(screen_name)
+            )
+        except Exception:
+            raise guest_error
     return {
         "id": u.id, "name": u.name, "screen_name": u.screen_name,
         "followers": u.followers_count, "following": u.following_count,
@@ -160,17 +170,30 @@ async def get_user_tweets(
     (oldest first, merges `pages` timeline pages). Returns tweet dicts."""
     count = min(max(count, 1), 40)
     if order != "chronological":
-        await api.ensure_guest()
-        u = await _with_retry(
-            "get-user", api.guest.get_user_by_screen_name, screen_name
-        )
-        tweets, _ = await _with_retry(
-            "get-tweets", u.get_tweets, "Tweets", count=count
-        )
-        return [api.tweet_to_dict(t) for t in tweets]
-    return await api._guest_timeline(
+        try:
+            await api.ensure_guest()
+            u = await _with_retry(
+                "get-user", api.guest.get_user_by_screen_name, screen_name
+            )
+            tweets, _ = await _with_retry(
+                "get-tweets", u.get_tweets, "Tweets", count=count
+            )
+        except Exception:
+            # Guest timeline occasionally flakes; fall back to the authed
+            # endpoint before giving up.
+            async def _authed_tweets():
+                u = await api.client.get_user_by_screen_name(screen_name)
+                res = await u.get_tweets("Tweets", count=count)
+                return list(res)
+
+            tweets = await _authed(_authed_tweets)
+        # X's timeline ignores `count` and returns a full page; trim so
+        # callers pay for only what they asked for.
+        return [api.tweet_to_dict(t) for t in list(tweets)[:count]]
+    tweets = await api._guest_timeline(
         screen_name, count, "chronological", max_pages=min(max(pages, 1), 10)
     )
+    return list(tweets)[:count]
 
 
 @mcp.tool()
@@ -328,7 +351,8 @@ async def get_followers(screen_name: str, count: int = 10) -> list[dict]:
         res = await _with_retry(
             "followers", u.get_followers, min(max(count, 1), 40)
         )
-        return [_user_dict(x) for x in res]
+        # X ignores `count` on this endpoint and returns a full page.
+        return [_user_dict(x) for x in list(res)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
@@ -341,7 +365,7 @@ async def get_following(screen_name: str, count: int = 10) -> list[dict]:
         res = await _with_retry(
             "following", u.get_following, min(max(count, 1), 40)
         )
-        return [_user_dict(x) for x in res]
+        return [_user_dict(x) for x in list(res)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
@@ -372,7 +396,7 @@ async def get_user_likes(screen_name: str, count: int = 10) -> list[dict]:
         tweets = await _with_retry(
             "likes", u.get_tweets, "Likes", count=min(max(count, 1), 40)
         )
-        return [api.tweet_to_dict(t) for t in tweets]
+        return [api.tweet_to_dict(t) for t in list(tweets)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
@@ -386,7 +410,7 @@ async def get_home_timeline(count: int = 10) -> list[dict]:
             api.client.get_latest_timeline,
             count=min(max(count, 1), 40),
         )
-        return [api.tweet_to_dict(t) for t in tweets]
+        return [api.tweet_to_dict(t) for t in list(tweets)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
@@ -408,7 +432,7 @@ async def get_bookmarks(count: int = 10) -> list[dict]:
         res = await _with_retry(
             "bookmarks", api.client.get_bookmarks, min(max(count, 1), 40)
         )
-        return [api.tweet_to_dict(t) for t in res]
+        return [api.tweet_to_dict(t) for t in list(res)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
@@ -435,36 +459,102 @@ async def quote_tweet(tweet_id: str, text: str = "") -> dict:
     return await _authed(_run)
 
 
+_MAX_MEDIA_BYTES = 15 * 1024 * 1024  # X's GIF ceiling; images are capped lower upstream
+
+
 async def _fetch_bytes(url: str) -> tuple[bytes, str]:
+    """Download an image URL and return (bytes, mime).
+
+    Two things made `upload_media` fail against real hosts: Wikimedia and
+    pbs.twimg.com reject the default python-httpx user agent, and X rejects
+    uploads whose declared type doesn't match the payload. Use a browser UA
+    (plus the same TLS impersonation as the API calls) and sniff the bytes.
+    """
     import httpx
 
-    async with httpx.AsyncClient(follow_redirects=True) as s:
-        r = await s.get(url, timeout=120)
+    headers = {
+        "User-Agent": api.guest._user_agent,
+        "Accept": "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8",
+        "Referer": "https://x.com/",
+    }
+    transport = None
+    try:
+        from curl_transport import CurlCffiTransport
+
+        transport = CurlCffiTransport(
+            api.TLS_IMPERSONATE or "chrome", fresh_session_per_request=True
+        )
+    except Exception:
+        # TLS impersonation is optional; plain httpx works for hosts that
+        # don't fingerprint the client.
+        transport = None
+
+    async with httpx.AsyncClient(
+        follow_redirects=True, timeout=120, headers=headers, transport=transport
+    ) as s:
+        r = await s.get(url)
         r.raise_for_status()
-        ct = r.headers.get("content-type", "").split(";")[0].strip()
-        if not ct.startswith("image/"):
-            # guess from URL when servers omit content-type
-            low = url.lower()
-            if low.endswith(".png"):
-                ct = "image/png"
-            elif low.endswith(".gif"):
-                ct = "image/gif"
-            elif low.endswith(".webp"):
-                ct = "image/webp"
-            else:
-                ct = "image/jpeg"
-        return r.content, ct
+        blob = r.content
+        declared = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+
+    if not blob:
+        raise RuntimeError(f"media URL returned no bytes: {url}")
+    if len(blob) > _MAX_MEDIA_BYTES:
+        raise RuntimeError(
+            f"media is {len(blob)} bytes, over X's {_MAX_MEDIA_BYTES}-byte limit: {url}"
+        )
+
+    if declared.startswith("image/"):
+        return blob, declared
+
+    # Header was missing or generic (application/octet-stream): trust the
+    # payload over the extension.
+    try:
+        import filetype
+
+        kind = filetype.guess(blob)
+        if kind and kind.mime.startswith("image/"):
+            return blob, kind.mime
+    except Exception:
+        pass
+
+    low = url.lower()
+    for ext, mime in (
+        (".png", "image/png"),
+        (".gif", "image/gif"),
+        (".webp", "image/webp"),
+        (".jpg", "image/jpeg"),
+        (".jpeg", "image/jpeg"),
+    ):
+        if ext in low:
+            return blob, mime
+
+    raise RuntimeError(
+        f"URL did not return an image (content-type={declared or 'missing'}): {url}"
+    )
+
+
+async def _upload_one(url: str) -> str:
+    """Download and upload a single image, returning its media ID."""
+    blob, media_type = await _fetch_bytes(url)
+    # GIFs must carry a category or twikit refuses to poll completion.
+    category = "tweet_gif" if media_type == "image/gif" else "tweet_image"
+    mid = await api.client.upload_media(
+        blob,
+        wait_for_completion=True,
+        media_type=media_type,
+        media_category=category,
+    )
+    if not mid:
+        raise RuntimeError(f"X did not return a media id for {url}")
+    return mid
 
 
 @mcp.tool()
 async def upload_media(media_url: str) -> dict:
     """Upload an image from a URL for use in a tweet. Returns {media_id}."""
     async def _run():
-        blob, media_type = await _fetch_bytes(media_url)
-        mid = await api.client.upload_media(
-            blob, wait_for_completion=True, media_type=media_type
-        )
-        return {"media_id": mid}
+        return {"media_id": await _upload_one(media_url)}
 
     return await _authed(_run)
 
@@ -472,17 +562,22 @@ async def upload_media(media_url: str) -> dict:
 @mcp.tool()
 async def post_tweet_with_media(text: str, media_urls: list[str]) -> dict:
     """Post a tweet with 1-4 images (URLs). Returns {posted, id}."""
+    if not media_urls:
+        raise RuntimeError("media_urls must contain at least one image URL")
     async def _run():
-        mids = []
-        for url in media_urls[:4]:
-            blob, media_type = await _fetch_bytes(url)
-            mids.append(
-                await api.client.upload_media(
-                    blob, wait_for_completion=True, media_type=media_type
-                )
-            )
+        mids = [await _upload_one(url) for url in media_urls[:4]]
         t = await api.client.create_tweet(text=text, media_ids=mids)
         return {"posted": True, "id": t.id}
+
+    return await _authed(_run)
+
+
+@mcp.tool()
+async def unbookmark_tweet(tweet_id: str) -> dict:
+    """Remove a tweet from your bookmarks. Returns {unbookmarked, id}."""
+    async def _run():
+        await api.client.delete_bookmark(tweet_id)
+        return {"unbookmarked": True, "id": tweet_id}
 
     return await _authed(_run)
 
@@ -510,7 +605,7 @@ async def get_mentions(count: int = 10) -> list[dict]:
             "mentions", api.client.get_notifications, "Mentions",
             min(max(count, 1), 40),
         )
-        return [_notif_dict(n) for n in res]
+        return [_notif_dict(n) for n in list(res)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
@@ -523,7 +618,7 @@ async def get_notifications(count: int = 10) -> list[dict]:
             "notifications", api.client.get_notifications, "All",
             min(max(count, 1), 40),
         )
-        return [_notif_dict(n) for n in res]
+        return [_notif_dict(n) for n in list(res)[: min(max(count, 1), 40)]]
 
     return await _authed(_run)
 
