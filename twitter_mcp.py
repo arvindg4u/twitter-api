@@ -348,11 +348,20 @@ async def get_followers(screen_name: str, count: int = 10) -> list[dict]:
     """Get followers of an X user. Returns [{id, name, screen_name, followers}]."""
     async def _run():
         u = await api.client.get_user_by_screen_name(screen_name)
-        res = await _with_retry(
-            "followers", u.get_followers, min(max(count, 1), 40)
-        )
+        cap = min(max(count, 1), 40)
+        try:
+            res = await _with_retry("followers", u.get_followers, cap)
+        except Exception:
+            # X periodically rotates (or 404s) the GraphQL Followers query ID
+            # while the v1.1 REST list keeps working. Fall back to it.
+            res = await _with_retry(
+                "followers-rest",
+                api.client.get_latest_followers,
+                user_id=u.id,
+                count=cap,
+            )
         # X ignores `count` on this endpoint and returns a full page.
-        return [_user_dict(x) for x in list(res)[: min(max(count, 1), 40)]]
+        return [_user_dict(x) for x in list(res)[:cap]]
 
     return await _authed(_run)
 
@@ -362,10 +371,18 @@ async def get_following(screen_name: str, count: int = 10) -> list[dict]:
     """Get accounts an X user follows. Returns [{id, name, screen_name, followers}]."""
     async def _run():
         u = await api.client.get_user_by_screen_name(screen_name)
-        res = await _with_retry(
-            "following", u.get_following, min(max(count, 1), 40)
-        )
-        return [_user_dict(x) for x in list(res)[: min(max(count, 1), 40)]]
+        cap = min(max(count, 1), 40)
+        try:
+            res = await _with_retry("following", u.get_following, cap)
+        except Exception:
+            # Same stale-GraphQL-query risk as followers; use v1.1 REST.
+            res = await _with_retry(
+                "following-rest",
+                api.client.get_latest_friends,
+                user_id=u.id,
+                count=cap,
+            )
+        return [_user_dict(x) for x in list(res)[:cap]]
 
     return await _authed(_run)
 
